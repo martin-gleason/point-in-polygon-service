@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+
+# Secrets — provider credentials live in env/config, never in the repo
+.env
+.env.*
+
+# Raw downloads (the pipeline rebuilds them; shipped GeoPackages ARE committed)
+data/raw/
+
+# OS / editor noise
+.DS_Store
+.idea/
+.vscode/

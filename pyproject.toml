@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "point-in-polygon-service"
+version = "0.1.0"
+description = "FOSS point-in-polygon web service: given an address or point, which polygon of a layer contains it? First dataset: Chicago / Cook County police districts."
+readme = "README.md"
+license = { text = "AGPL-3.0-or-later" }
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "geopandas>=1.0",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "respx>=0.21",
+]
+
+[tool.setuptools]
+packages = ["app", "app.geocoding"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
