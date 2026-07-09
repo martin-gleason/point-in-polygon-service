@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import geopandas as gpd
+import pandas as pd
 from pyproj import Transformer
 from shapely import STRtree
 from shapely.geometry import Point
@@ -53,7 +54,15 @@ class Match:
 
 
 def _to_python(value):
-    """Convert a numpy/pandas scalar to a plain Python value for JSON output."""
+    """Convert a numpy/pandas scalar to a plain, JSON-safe Python value.
+
+    A null cell (a source polygon with a missing attribute — the municipalities
+    layer has features with no `muni_name`) must serialize as JSON `null`, not
+    as a numpy `float('nan')`, which is not valid JSON (RFC 8259) and would
+    break the frontend or force a 500.
+    """
+    if pd.isna(value):
+        return None
     item = getattr(value, "item", None)
     return item() if callable(item) else value
 
@@ -94,12 +103,16 @@ class _LoadedLayer:
 
         # A point on a shared edge can be covered by more than one polygon.
         # Return the first by a stable sort on the layer's first configured
-        # attribute, so the answer is deterministic (D4).
+        # attribute, so the answer is deterministic (D4). Null values sort last
+        # (they carry no useful identity), then by string value.
         if len(indices) > 1:
             first_attr = self.config.attributes[0]
-            indices = sorted(
-                indices, key=lambda i: str(self.frame.iloc[int(i)][first_attr])
-            )
+
+            def sort_key(i):
+                value = self.frame.iloc[int(i)][first_attr]
+                return (pd.isna(value), str(_to_python(value)))
+
+            indices = sorted(indices, key=sort_key)
 
         row = self.frame.iloc[int(indices[0])]
         feature = {attr: _to_python(row[attr]) for attr in self.config.attributes}
