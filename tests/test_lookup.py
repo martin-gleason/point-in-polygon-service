@@ -7,6 +7,8 @@ WGS84 lon/lat, so the test exercises the reprojection in both directions and
 does not depend on the sign conventions of the projection. A final test runs
 against the shipped data/layers.gpkg.
 """
+import json
+import math
 from pathlib import Path
 
 import geopandas as gpd
@@ -41,16 +43,20 @@ def _lonlat(x: float, y: float) -> tuple[float, float]:
     return lon, lat
 
 
-@pytest.fixture
-def squares_lookup(tmp_path) -> PolygonLookup:
-    alpha = box(CX - HALF, CY - HALF, CX + OVERLAP, CY + HALF)  # west, extends east past CX
-    beta = box(CX - OVERLAP, CY - HALF, CX + HALF, CY + HALF)  # east, extends west past CX
+def _build_squares(tmp_path, west_name="alpha", east_name="beta") -> PolygonLookup:
+    """Two overlapping squares (west at tree index 0, east at index 1).
+
+    Names are parameterizable so a test can make the attribute-sort winner
+    differ from the STRtree's natural-first element.
+    """
+    west = box(CX - HALF, CY - HALF, CX + OVERLAP, CY + HALF)  # extends east past CX
+    east = box(CX - OVERLAP, CY - HALF, CX + HALF, CY + HALF)  # extends west past CX
     frame = gpd.GeoDataFrame(
-        {"name": ["alpha", "beta"], "code": ["A", "B"]},
-        geometry=[alpha, beta],
+        {"name": [west_name, east_name], "code": ["W", "E"]},
+        geometry=[west, east],
         crs="EPSG:3435",
     )
-    gpkg = tmp_path / "squares.gpkg"
+    gpkg = tmp_path / f"squares_{west_name}_{east_name}.gpkg"
     frame.to_file(gpkg, layer="squares", driver="GPKG")
 
     config = AppConfig(
@@ -68,28 +74,44 @@ def squares_lookup(tmp_path) -> PolygonLookup:
     return PolygonLookup(config)
 
 
+@pytest.fixture
+def squares_lookup(tmp_path) -> PolygonLookup:
+    return _build_squares(tmp_path)
+
+
 def test_point_inside_west_square(squares_lookup):
-    lon, lat = _lonlat(CX - HALF / 2, CY)  # clearly inside alpha
+    lon, lat = _lonlat(CX - HALF / 2, CY)  # clearly inside alpha (west)
     match = squares_lookup.locate(lon, lat, "squares")
     assert match.found
-    assert match.feature == {"name": "alpha", "code": "A"}
+    assert match.feature == {"name": "alpha", "code": "W"}
 
 
 def test_point_inside_east_square(squares_lookup):
-    lon, lat = _lonlat(CX + HALF / 2, CY)  # clearly inside beta
+    lon, lat = _lonlat(CX + HALF / 2, CY)  # clearly inside beta (east)
     match = squares_lookup.locate(lon, lat, "squares")
     assert match.found
-    assert match.feature == {"name": "beta", "code": "B"}
+    assert match.feature == {"name": "beta", "code": "E"}
 
 
-def test_point_in_overlap_is_deterministic(squares_lookup):
-    # A point in the overlap strip (x=CX) is covered by BOTH squares; the engine
-    # must return a stable, deterministic pick — the first by the first
-    # configured attribute ("name").
+@pytest.mark.parametrize(
+    "west_name,east_name",
+    [
+        ("aaa", "zzz"),  # west (tree index 0) sorts first
+        ("zzz", "aaa"),  # east (tree index 1) sorts first
+    ],
+)
+def test_overlap_returns_attribute_minimum(tmp_path, west_name, east_name):
+    # A point in the overlap is covered by BOTH squares. The engine must return
+    # the one whose first attribute ("name") sorts first — regardless of which
+    # tree index STRtree returns first. Testing both name orderings gives the
+    # assertion teeth: if the tie-break sort were removed, the engine would
+    # always return the STRtree's natural-first element (west, index 0), so the
+    # ("zzz","aaa") case — where the correct answer is east — would fail.
+    lookup = _build_squares(tmp_path, west_name=west_name, east_name=east_name)
     lon, lat = _lonlat(CX, CY)
-    match = squares_lookup.locate(lon, lat, "squares")
+    match = lookup.locate(lon, lat, "squares")
     assert match.found
-    assert match.feature["name"] == "alpha"  # sorts before "beta"
+    assert match.feature["name"] == min(west_name, east_name)
 
 
 def test_point_outside_all_polygons(squares_lookup):
@@ -153,3 +175,25 @@ def test_real_data_known_addresses():
     evanston_muni = lookup.locate(-87.68770, 42.04512, "municipalities")
     assert evanston_muni.found
     assert evanston_muni.feature["muni_name"] == "Evanston"
+
+
+@pytest.mark.skipif(not REAL_GPKG.exists(), reason="data/layers.gpkg not built")
+def test_real_data_null_attribute_serializes_as_none():
+    # The municipalities layer has features with a null muni_name. A point inside
+    # such a polygon must return JSON-valid None, never a float NaN (which is not
+    # valid JSON and would break the frontend or force a 500).
+    frame = gpd.read_file(REAL_GPKG, layer="municipalities")
+    null_rows = frame[frame["muni_name"].isna()]
+    if null_rows.empty:
+        pytest.skip("no null muni_name in current data")
+
+    inside = null_rows.geometry.iloc[0].representative_point()  # guaranteed inside
+    to_wgs84 = Transformer.from_crs(frame.crs, "EPSG:4326", always_xy=True)
+    lon, lat = to_wgs84.transform(inside.x, inside.y)
+
+    lookup = PolygonLookup(load_config(REAL_CONFIG))
+    match = lookup.locate(lon, lat, "municipalities")
+    assert match.found
+    value = match.feature["muni_name"]
+    assert not (isinstance(value, float) and math.isnan(value)), "returned NaN"
+    json.dumps(match.feature)  # must not raise
