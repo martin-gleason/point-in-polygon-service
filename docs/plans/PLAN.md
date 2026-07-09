@@ -288,6 +288,15 @@ verification evidence in the PR → maintainer review + log → gate.
 CLAUDE.md prose covers the rest; anything the agent drifts past twice gets
 promoted to a hook here.
 
+**`H<N>` is a plan-local label, not a work-chunk ID.** The `H` numbers exist
+only to trace *spec invariant → mechanism → owning task* in this table (the same
+register-only role Milestone/Risk IDs play in the OCS grammar). An `H<N>` MUST
+NOT appear in a commit, branch, or PR title — the building work always carries
+the `F`/`C`/`T` ID of its owning task (e.g. the H4 log test ships under
+`F4-T6`, not `hook(H4):`). This keeps the project's structural grammar exactly
+three categories — Feature, Chore, Task. *(Ratified 2026-07-06; promoted to the
+`cc-md` skill's Hooks guidance the same day.)*
+
 ## 6. Chores (human track)
 
 - **C0** — scaffold the skeleton — **DONE 2026-07-06** (this session;
