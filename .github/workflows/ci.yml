@@ -25,6 +25,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      - name: Secret-scanner selftest (H3 matcher)
+        run: python scripts/check_no_secrets.py --selftest
+
       - name: Secret scan (H3 — SPEC §9)
         run: python scripts/check_no_secrets.py
 
