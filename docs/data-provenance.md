@@ -68,6 +68,26 @@ falls in no police district, but does fall in a municipality (e.g. Evanston).
 
 ---
 
+## Geocoder — Cook County AddressLocator (SPEC §5 mode 1, F3-T1)
+
+| Field | Value |
+|---|---|
+| Provider id | `cook_county_arcgis` |
+| Service | Cook County GIS, `AddressLocator/CookAddressComposite` **GeocodeServer** |
+| Operation | `findAddressCandidates` |
+| Base URL | `https://gis.cookcountyil.gov/traditional/rest/services/AddressLocator/CookAddressComposite/GeocodeServer` |
+| Auth | none (public) — a private/internal server (mode 2) adds a token by env-var name |
+| Service native SR | EPSG:3435 (wkid 102671); the adapter requests `outSR=4326` so results come back as WGS84 lon/lat |
+| Score | 0–100, passed through unchanged (D6) |
+
+**Captured sample (retrieved 2026-07-09), used to back the F3-T4 tests:**
+
+`findAddressCandidates?SingleLine=121 N LaSalle St, Chicago, IL 60602&outSR=4326`
+→ 1 candidate: `Match_addr = "121 N LA SALLE ST, CHICAGO, IL"`,
+`location = {x: -87.63231, y: 41.88366}`, `score = 97.15`.
+An unmatchable query returns `{"candidates": []}`. The tests use `respx`-mocked
+HTTP shaped from this capture, so CI never depends on the live endpoint.
+
 ## Reproducibility
 
 `scripts/build_data.py` caches raw downloads in `data/raw/` (gitignored) and

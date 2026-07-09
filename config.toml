@@ -20,3 +20,17 @@ path = "data/layers.gpkg"
 layer = "municipalities"
 attributes = ["muni_name", "agency"]
 source = "Cook County GIS, politicalBoundary/MapServer layer 2 (Municipality)."
+
+# Geocoder providers (SPEC §5). The ArcGIS REST adapter (F3) serves modes 1 and
+# 2: mode 1 is a public GeocodeServer (default below); mode 2 points base_url at
+# a private/internal server and sets token_env to the NAME of the env var
+# holding its token (never the value — D2, §9). Provider selection and the
+# fallback chain (F5) consume these entries; F3 constructs the adapter from one.
+
+[[geocoders]]
+id = "cook_county_arcgis"
+type = "arcgis_rest"
+base_url = "https://gis.cookcountyil.gov/traditional/rest/services/AddressLocator/CookAddressComposite/GeocodeServer"
+timeout = 10.0
+min_score = 0.0
+# token_env = "COOK_GEOCODER_TOKEN"   # uncomment only for a secured server (mode 2)
