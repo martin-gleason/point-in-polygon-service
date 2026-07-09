@@ -68,6 +68,11 @@ def load_config(config_path: Path | None = None) -> AppConfig:
     raw_layers = raw.get("layers")
     if not raw_layers:
         raise ConfigError(f"{path}: no [[layers]] configured")
+    if not isinstance(raw_layers, list):
+        raise ConfigError(
+            f"{path}: 'layers' must be an array of tables ([[layers]]), "
+            f"not {type(raw_layers).__name__}"
+        )
 
     base_dir = path.resolve().parent
     layers: dict[str, LayerConfig] = {}
