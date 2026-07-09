@@ -1,0 +1,22 @@
+# Service configuration — layers (F2) and, later, geocoder providers (F3/F5).
+#
+# Layer paths are resolved relative to THIS file's directory. The default
+# install ships data/layers.gpkg (built by scripts/build_data.py, F1).
+#
+# Override the config location with the PIP_CONFIG environment variable.
+
+[[layers]]
+id = "police_districts"
+name = "Chicago Police Districts"
+path = "data/layers.gpkg"
+layer = "police_districts"
+attributes = ["dist_num", "dist_name"]
+source = "City of Chicago Data Portal, dataset 24zt-jpfn (Boundaries - Police Districts, current)."
+
+[[layers]]
+id = "municipalities"
+name = "Cook County Municipalities"
+path = "data/layers.gpkg"
+layer = "municipalities"
+attributes = ["muni_name", "agency"]
+source = "Cook County GIS, politicalBoundary/MapServer layer 2 (Municipality)."
