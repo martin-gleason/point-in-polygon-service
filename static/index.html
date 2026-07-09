@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Point-in-Polygon Service — test</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <h1>Point-in-Polygon Service</h1>
+    <p class="lede">
+      Enter a point and a layer to find the polygon that contains it. This test
+      page talks only to the JSON API (<code>POST /locate</code>). See
+      <a href="/docs">/docs</a> for the full contract.
+    </p>
+
+    <section class="card">
+      <h2>Look up a point</h2>
+      <form id="locate-form" novalidate>
+        <div class="field">
+          <label for="layer">Layer</label>
+          <select id="layer" name="layer" required></select>
+          <span class="hint" id="layer-hint"></span>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="lat">Latitude</label>
+            <input id="lat" name="lat" type="number" step="any" required
+                   placeholder="41.88354" inputmode="decimal">
+          </div>
+          <div class="field">
+            <label for="lon">Longitude</label>
+            <input id="lon" name="lon" type="number" step="any" required
+                   placeholder="-87.63192" inputmode="decimal">
+          </div>
+        </div>
+
+        <button type="submit" id="submit">Locate</button>
+      </form>
+
+      <div class="presets">
+        <span class="presets-label">Try:</span>
+        <button type="button" class="preset" data-lat="41.88354" data-lon="-87.63192"
+                data-layer="police_districts">Chicago City Hall → District 1</button>
+        <button type="button" class="preset" data-lat="41.94741" data-lon="-87.65543"
+                data-layer="police_districts">Wrigley Field → District 19</button>
+        <button type="button" class="preset" data-lat="42.04512" data-lon="-87.68770"
+                data-layer="police_districts">Evanston → outside all districts</button>
+        <button type="button" class="preset" data-lat="42.04512" data-lon="-87.68770"
+                data-layer="municipalities">Evanston → municipality</button>
+      </div>
+    </section>
+
+    <section class="card" id="result-card" hidden>
+      <h2>Result</h2>
+      <div id="result" role="status" aria-live="polite"></div>
+      <details>
+        <summary>Raw JSON</summary>
+        <pre id="raw"></pre>
+      </details>
+    </section>
+
+    <section class="card muted">
+      <h2>Address search</h2>
+      <p>
+        Typing a street address (instead of coordinates) needs the geocoder,
+        which arrives with <strong>F3</strong>. The field below is a placeholder
+        so you can see where it will slot in.
+      </p>
+      <div class="field">
+        <label for="address">Address <span class="tag">coming with F3</span></label>
+        <input id="address" type="text" placeholder="121 N LaSalle St, Chicago" disabled>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
