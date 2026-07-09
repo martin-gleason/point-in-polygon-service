@@ -52,10 +52,13 @@ Once feature work ships, the runtime install will be:
 
 ```
 pip install -e .
-uvicorn app.main:app
+uvicorn app.main:app --no-access-log
 ```
 
-…on a machine with no Esri software and no API keys (spec §7).
+…on a machine with no Esri software and no API keys (spec §7). The
+`--no-access-log` flag keeps request parameters out of any log (no-PII, spec §9);
+the service also serves a static test page at `/` and the generated contract at
+`/openapi.json`.
 
 ## License
 
