@@ -9,46 +9,56 @@ blocks, AWS keys, assigned secret literals) so it almost never false-positives,
 and it is run both locally and in CI (.github/workflows/ci.yml).
 
     python scripts/check_no_secrets.py    # exit 0 clean, 1 if a secret is found
+    python scripts/check_no_secrets.py --selftest   # prove the matcher itself
 
 Standard library only — runs anywhere with no install.
+
+The matcher distinguishes a hardcoded secret *value* from a reference to one.
+An assignment trips only when a secret-named identifier (with any prefix, so
+`db_password` and `COOK_GEOCODER_TOKEN` count, not just bare `token`) is set to
+a **quoted string literal**. The env-reference forms config actually uses —
+`token_env = "NAME"`, `token = os.environ["NAME"]`, `getenv("NAME")` — do not
+match, because the secret word is not immediately followed by `= "<literal>"`.
 """
 from __future__ import annotations
 
+import argparse
 import re
 import subprocess
 import sys
 
-# High-signal patterns. Each is a literal secret *value*, not a reference to one.
+# High-signal patterns. Each targets a literal secret *value*, not a reference.
 PATTERNS = [
     (re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"), "private key block"),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "AWS access key id"),
-    # An assignment of a non-trivial literal to a secret-named key. The env-var
-    # *reference* form (token_env = "NAME", token = os.environ[...]) is allowed;
-    # only a quoted literal value assigned to token/secret/api_key/password trips.
+    # A secret-named identifier (optionally prefixed: db_, stripe_, COOK_GEOCODER_)
+    # assigned a quoted literal of 8+ chars. The leading (?:^|[^\w-]) + [\w-]*
+    # lets a prefix through while still anchoring; `token_env = "..."` does NOT
+    # match because after `token` comes `_env`, not the `[:=]` assignment.
     (
         re.compile(
             r"""(?ix)
-            \b(?:api[_-]?key|secret|token|password|passwd)\b   # a secret-ish name
+            (?:^|[^\w-])                                        # start, or a non-name char
+            [\w-]*                                              # optional identifier prefix
+            (?:api[_-]?key|secret|token|password|passwd)        # a secret-ish name
             \s*[:=]\s*                                          # assignment
-            ['"][^'"\n]{8,}['"]                                 # a quoted literal, 8+ chars
+            ['"][^'"\n]{8,}['"]                                 # a quoted literal value, 8+ chars
             """
         ),
         "assigned secret literal",
     ),
 ]
 
-# Reference forms that must NOT trip the scanner even though they mention a
-# secret-ish word next to an assignment.
-ALLOWED = re.compile(
-    r"""(?ix)
-    (?:token_env|_env|env|environ)          # env-var reference conventions
-    | os\.environ
-    | getenv
-    """
-)
-
-# Paths whose job is to talk about secrets (this scanner, docs) — skip them.
+# Paths whose job is to talk about secrets (this scanner) — skip them.
 SKIP_PREFIXES = ("scripts/check_no_secrets.py",)
+
+
+def scan_line(line):
+    """Return the label of the first secret pattern the line matches, or None."""
+    for pattern, label in PATTERNS:
+        if pattern.search(line):
+            return label
+    return None
 
 
 def tracked_text_files():
@@ -70,13 +80,61 @@ def scan():
         except (UnicodeDecodeError, FileNotFoundError):
             continue  # binary (e.g. the GeoPackage) or removed — nothing to scan
         for lineno, line in enumerate(lines, 1):
-            for pattern, label in PATTERNS:
-                if pattern.search(line) and not ALLOWED.search(line):
-                    findings.append((path, lineno, label, line.strip()))
+            label = scan_line(line)
+            if label:
+                findings.append((path, lineno, label, line.strip()))
     return findings
 
 
-def main():
+# (line, should_flag) — the matcher's contract, including the reviewer's bypass
+# cases. Run with --selftest; also guarded by tests if desired.
+SELFTEST_CASES = [
+    # Must FLAG — hardcoded secret literals, prefixed or bare, comment or not.
+    ('api_key = "sk-realhardcodedvalue123"  # normally set via environment', True),
+    ('token = "ghp_anotherrealsecret99"  # TODO move to env', True),
+    ('db_password = "hunter2secret"', True),
+    ('stripe_secret = "sk_live_abc12345"', True),
+    ('github_token = "ghp_realtokenvalue123"', True),
+    ('COOK_GEOCODER_TOKEN = "literal-token-committed-here"', True),
+    ('password = "hunter2secret"', True),
+    ("AKIAIOSFODNN7EXAMPLE", True),
+    ("-----BEGIN RSA PRIVATE KEY-----", True),
+    # Must NOT flag — the env-reference forms config uses (D2), and near-misses.
+    ('token_env = "COOK_GEOCODER_TOKEN"', False),
+    ('token = os.environ["COOK_GEOCODER_TOKEN"]', False),
+    ('api_key = os.getenv("SOME_KEY")', False),
+    ('token_env: str = "PROVIDER_TOKEN_ENV"', False),
+    ('secret_env_var = "MY_SECRET_NAME"', False),
+    ("# describes the token_env config field", False),
+]
+
+
+def selftest():
+    failures = []
+    for line, should_flag in SELFTEST_CASES:
+        flagged = scan_line(line) is not None
+        if flagged != should_flag:
+            failures.append((line, should_flag, flagged))
+    if failures:
+        print("SELFTEST FAILED:", file=sys.stderr)
+        for line, expected, got in failures:
+            verb = "should flag" if expected else "should NOT flag"
+            print(f"  {verb}: {line!r} (got flagged={got})", file=sys.stderr)
+        return 1
+    print(f"selftest passed ({len(SELFTEST_CASES)} cases).")
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--selftest", action="store_true", help="verify the matcher against known cases"
+    )
+    args = parser.parse_args(argv)
+
+    if args.selftest:
+        return selftest()
+
     findings = scan()
     if not findings:
         print("no committed secrets found.")

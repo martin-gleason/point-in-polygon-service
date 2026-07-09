@@ -57,6 +57,9 @@ def test_layer_schema(layer_id):
     )
 
     assert frame.geometry.notna().all(), f"{layer_id}: has null geometry"
+    # GEOS treats an empty polygon as valid, so is_valid alone would let a
+    # collapsed geometry through — a point could never fall in it.
+    assert (~frame.geometry.is_empty).all(), f"{layer_id}: has empty geometry"
     assert frame.geometry.is_valid.all(), f"{layer_id}: has invalid geometry"
     assert frame.geometry.geom_type.isin({"Polygon", "MultiPolygon"}).all(), (
         f"{layer_id}: non-polygon geometry present"
