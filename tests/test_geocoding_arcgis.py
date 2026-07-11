@@ -41,7 +41,7 @@ def _geocoder(**kwargs) -> ArcGISRestGeocoder:
 
 @respx.mock
 def test_geocode_match():
-    respx.get(FIND_URL).mock(return_value=httpx.Response(200, json=MATCH_RESPONSE))
+    respx.post(FIND_URL).mock(return_value=httpx.Response(200, json=MATCH_RESPONSE))
     result = _geocoder().geocode("121 N LaSalle St, Chicago, IL")
     assert result.matched is True
     assert result.provider == "cook_county_arcgis"
@@ -51,8 +51,19 @@ def test_geocode_match():
 
 
 @respx.mock
+def test_request_uses_post_with_address_in_body_not_url():
+    # The address (PII) must never be in the request URL / query string (§9/D5).
+    route = respx.post(FIND_URL).mock(return_value=httpx.Response(200, json=MATCH_RESPONSE))
+    _geocoder().geocode("121 N LaSalle St, Chicago, IL")
+    request = route.calls.last.request
+    assert request.method == "POST"
+    assert "LaSalle" not in str(request.url)
+    assert b"LaSalle" in request.content  # it's in the body instead
+
+
+@respx.mock
 def test_geocode_no_candidates():
-    respx.get(FIND_URL).mock(return_value=httpx.Response(200, json=NO_MATCH_RESPONSE))
+    respx.post(FIND_URL).mock(return_value=httpx.Response(200, json=NO_MATCH_RESPONSE))
     result = _geocoder().geocode("zzzz nowhere 99999")
     assert result.matched is False
     assert result.point is None
@@ -62,14 +73,14 @@ def test_geocode_no_candidates():
 
 @respx.mock
 def test_timeout_raises_unavailable():
-    respx.get(FIND_URL).mock(side_effect=httpx.TimeoutException("timed out"))
+    respx.post(FIND_URL).mock(side_effect=httpx.TimeoutException("timed out"))
     with pytest.raises(GeocoderUnavailable):
         _geocoder().geocode("anything")
 
 
 @respx.mock
 def test_http_500_raises_unavailable():
-    respx.get(FIND_URL).mock(return_value=httpx.Response(500, text="server error"))
+    respx.post(FIND_URL).mock(return_value=httpx.Response(500, text="server error"))
     with pytest.raises(GeocoderUnavailable):
         _geocoder().geocode("anything")
 
@@ -77,33 +88,66 @@ def test_http_500_raises_unavailable():
 @respx.mock
 def test_arcgis_error_body_raises_unavailable():
     # ArcGIS reports failures as HTTP 200 with an {"error": ...} body.
-    respx.get(FIND_URL).mock(return_value=httpx.Response(200, json=ARCGIS_ERROR_RESPONSE))
+    respx.post(FIND_URL).mock(return_value=httpx.Response(200, json=ARCGIS_ERROR_RESPONSE))
     with pytest.raises(GeocoderUnavailable):
         _geocoder().geocode("anything")
 
 
 @respx.mock
+def test_non_dict_body_raises_unavailable():
+    # A valid-JSON but non-dict 200 (misrouted URL, proxy) must not crash with an
+    # AttributeError — D7 promises GeocoderUnavailable.
+    respx.post(FIND_URL).mock(return_value=httpx.Response(200, json=[1, 2, 3]))
+    with pytest.raises(GeocoderUnavailable):
+        _geocoder().geocode("anything")
+
+
+@respx.mock
+def test_null_score_candidate_does_not_crash():
+    # A candidate with an explicit null score must not raise a TypeError.
+    body = {"candidates": [{"address": "X", "location": {"x": -87.6, "y": 41.8}, "score": None}]}
+    respx.post(FIND_URL).mock(return_value=httpx.Response(200, json=body))
+    result = _geocoder().geocode("weird server")  # min_score 0 → matches, score 0.0
+    assert result.matched is True
+    assert result.score == 0.0
+
+
+@respx.mock
 def test_min_score_filters_weak_candidate():
     weak = {"candidates": [{"address": "X", "location": {"x": -87.6, "y": 41.8}, "score": 40.0}]}
-    respx.get(FIND_URL).mock(return_value=httpx.Response(200, json=weak))
+    respx.post(FIND_URL).mock(return_value=httpx.Response(200, json=weak))
     result = _geocoder(min_score=90.0).geocode("weak match")
     assert result.matched is False
 
 
 @respx.mock
-def test_token_attached_from_env(monkeypatch):
+def test_token_attached_in_body_from_env(monkeypatch):
     monkeypatch.setenv("PRIVATE_GEOCODER_TOKEN", "secret-token-123")
-    route = respx.get(FIND_URL).mock(return_value=httpx.Response(200, json=MATCH_RESPONSE))
+    route = respx.post(FIND_URL).mock(return_value=httpx.Response(200, json=MATCH_RESPONSE))
     _geocoder(token_env="PRIVATE_GEOCODER_TOKEN").geocode("121 N LaSalle St")
-    assert route.called
-    assert route.calls.last.request.url.params["token"] == "secret-token-123"
+    request = route.calls.last.request
+    assert b"token=secret-token-123" in request.content  # in body
+    assert "token" not in str(request.url)  # never in the URL
 
 
 @respx.mock
 def test_no_token_when_env_unset():
-    route = respx.get(FIND_URL).mock(return_value=httpx.Response(200, json=MATCH_RESPONSE))
+    route = respx.post(FIND_URL).mock(return_value=httpx.Response(200, json=MATCH_RESPONSE))
     _geocoder(token_env="UNSET_TOKEN_VAR").geocode("121 N LaSalle St")
-    assert "token" not in route.calls.last.request.url.params
+    assert b"token=" not in route.calls.last.request.content
+
+
+@respx.mock
+def test_token_and_address_never_leak_into_exception(monkeypatch):
+    # §9 non-negotiable: on an upstream error, neither the secret token nor the
+    # queried address may appear in the exception the service will log.
+    monkeypatch.setenv("PRIVATE_GEOCODER_TOKEN", "super-secret-token-abc123")
+    respx.post(FIND_URL).mock(return_value=httpx.Response(500, text="server error"))
+    with pytest.raises(GeocoderUnavailable) as exc_info:
+        _geocoder(token_env="PRIVATE_GEOCODER_TOKEN").geocode("121 N LaSalle St, Chicago")
+    message = str(exc_info.value)
+    assert "super-secret-token-abc123" not in message
+    assert "LaSalle" not in message
 
 
 def test_from_config_mode1_and_mode2_are_config_only():

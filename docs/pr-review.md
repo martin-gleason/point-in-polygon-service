@@ -16,4 +16,7 @@ Setting up config and fast fail processes, and a simple web form to test functio
 
 ## What to do different
 - Why TOML instead of YAML?
-- 
+  - [TOML is minimal, human readable configuration](https://toml.io/en/)
+  - perfect for configuration
+  - why not json?
+    - i bet its just less complicated

@@ -88,6 +88,10 @@ falls in no police district, but does fall in a municipality (e.g. Evanston).
 An unmatchable query returns `{"candidates": []}`. The tests use `respx`-mocked
 HTTP shaped from this capture, so CI never depends on the live endpoint.
 
+The adapter sends the request as **POST with the parameters in the body**, not a
+GET query string, so the queried address (PII, §9) and any auth token (§9) never
+appear in a request URL that could reach an access log or an exception message.
+
 ## Reproducibility
 
 `scripts/build_data.py` caches raw downloads in `data/raw/` (gitignored) and
