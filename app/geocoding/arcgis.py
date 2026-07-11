@@ -31,6 +31,13 @@ from app.geocoding.base import GeocodeResult, GeocoderUnavailable
 FIND_CANDIDATES = "findAddressCandidates"
 
 
+def _candidate_score(candidate: dict) -> float:
+    """A candidate's score as a float, defaulting a missing OR null score to 0.0
+    so ranking and thresholding never crash on a malformed server response."""
+    score = candidate.get("score")
+    return float(score) if isinstance(score, (int, float)) else 0.0
+
+
 class ArcGISRestGeocoder:
     """A Geocoder backed by an ArcGIS `GeocodeServer`.
 
@@ -87,22 +94,41 @@ class ArcGISRestGeocoder:
         url = f"{self.base_url}/{FIND_CANDIDATES}"
         try:
             with httpx.Client(timeout=self.timeout) as client:
-                response = client.get(url, params=params)
+                # POST with the params in the body, NOT the query string: the
+                # address (PII, §9/D5) and any token (§9/D2) must never appear in
+                # a URL that can land in an access log or an exception message.
+                response = client.post(url, data=params)
                 response.raise_for_status()
                 data = response.json()
+        except httpx.HTTPStatusError as error:
+            # error's string form embeds the request URL; with POST that URL is
+            # the bare endpoint, but we still report only the status code so no
+            # request detail can ever leak into logs (§9).
+            raise GeocoderUnavailable(
+                f"{self.name}: HTTP {error.response.status_code}"
+            ) from error
         except (httpx.HTTPError, ValueError) as error:
-            raise GeocoderUnavailable(f"{self.name}: {error}") from error
+            # Timeout / connect / unparseable JSON — report the failure kind, not
+            # the message, to keep request data out of logs (§9).
+            raise GeocoderUnavailable(
+                f"{self.name}: request failed ({type(error).__name__})"
+            ) from error
+
+        if not isinstance(data, dict):
+            raise GeocoderUnavailable(f"{self.name}: unexpected response body")
 
         # ArcGIS reports failures as HTTP 200 with an {"error": ...} body.
-        if isinstance(data, dict) and "error" in data:
-            raise GeocoderUnavailable(f"{self.name}: ArcGIS error {data['error']}")
+        if "error" in data:
+            detail = data["error"]
+            code = detail.get("code") if isinstance(detail, dict) else None
+            raise GeocoderUnavailable(f"{self.name}: ArcGIS error {code or 'unknown'}")
 
         candidates = data.get("candidates", [])
         if not candidates:
             return GeocodeResult.no_match(address, self.name)
 
-        best = max(candidates, key=lambda candidate: candidate.get("score", 0.0))
-        if best.get("score", 0.0) < self.min_score:
+        best = max(candidates, key=_candidate_score)
+        if _candidate_score(best) < self.min_score:
             return GeocodeResult.no_match(address, self.name)
 
         location = best.get("location") or {}
@@ -117,6 +143,6 @@ class ArcGISRestGeocoder:
             matched=True,
             provider=self.name,
             point=(float(longitude), float(latitude)),
-            score=float(best["score"]) if best.get("score") is not None else None,
+            score=_candidate_score(best),
             matched_address=best.get("address"),
         )
