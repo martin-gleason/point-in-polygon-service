@@ -1,12 +1,19 @@
 /* Self-contained, no external fonts or assets (works offline). Light + dark. */
 
+/* Colours are chosen to meet WCAG 2.1 AA: >=4.5:1 for text, >=3:1 for UI
+   component boundaries (form-control borders, focus ring). `--border` styles
+   decorative card edges; `--field-border` is the darker, 3:1-compliant edge for
+   interactive controls. `--btn-fg` is the on-accent text colour (white fails on
+   the light-blue dark-theme accent, so dark theme flips it). */
 :root {
   --bg: #f6f7f9;
   --card: #ffffff;
   --ink: #1a1d21;
   --muted-ink: #5b636c;
   --border: #d9dee3;
-  --accent: #1f6feb;
+  --field-border: #828892;
+  --accent: #155fd0;
+  --btn-fg: #ffffff;
   --found: #10743a;
   --found-bg: #e6f4ea;
   --outside: #8a5a00;
@@ -22,7 +29,9 @@
     --ink: #e6e9ec;
     --muted-ink: #9aa4ae;
     --border: #2a323b;
+    --field-border: #657282;
     --accent: #58a6ff;
+    --btn-fg: #0f1216;
     --found: #56d364;
     --found-bg: #12261a;
     --outside: #e3b341;
@@ -42,7 +51,7 @@ body {
   font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 }
 
-main { max-width: 40rem; margin: 0 auto; }
+header, main { max-width: 40rem; margin: 0 auto; }
 
 h1 { font-size: 1.6rem; margin: 0 0 0.25rem; }
 h2 { font-size: 1.1rem; margin: 0 0 0.75rem; }
@@ -79,13 +88,21 @@ input, select {
   padding: 0.55rem 0.65rem;
   color: var(--ink);
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--field-border);
   border-radius: 8px;
 }
 
-input:focus, select:focus, button:focus-visible {
+input:focus, select:focus,
+a:focus-visible, button:focus-visible,
+summary:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline-offset: 2px;
+}
+
+/* Invalid state: red border is a supplement — the live-region message carries
+   the actual text, and aria-invalid exposes the state to assistive tech. */
+input[aria-invalid="true"], select[aria-invalid="true"] {
+  border-color: var(--error);
 }
 
 input:disabled { opacity: 0.55; }
@@ -100,18 +117,19 @@ button {
   border-radius: 8px;
   border: 1px solid transparent;
   background: var(--accent);
-  color: #fff;
+  color: var(--btn-fg);
 }
 
 button:hover { filter: brightness(1.05); }
 
-.presets { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.presets { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; }
+.preset-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .presets-label { font-size: 0.85rem; color: var(--muted-ink); }
 
 button.preset {
   background: transparent;
   color: var(--accent);
-  border-color: var(--border);
+  border-color: var(--field-border);
   font-weight: 500;
   font-size: 0.85rem;
   padding: 0.35rem 0.6rem;
@@ -129,17 +147,22 @@ button.preset {
   margin-left: 0.35rem;
 }
 
-#result {
+/* The live region stays in the DOM at all times; :not(:empty) means it takes no
+   visual space until it holds a message, without being display:none (which
+   would drop it from the accessibility tree and suppress the first announcement). */
+.result:not(:empty) {
   padding: 0.85rem 1rem;
   border-radius: 8px;
+  border: 1px solid transparent;
   font-weight: 600;
-  margin-bottom: 0.75rem;
+  margin-bottom: 1.25rem;
 }
-#result.found { background: var(--found-bg); color: var(--found); }
-#result.outside { background: var(--outside-bg); color: var(--outside); }
-#result.error { background: var(--error-bg); color: var(--error); }
-#result.pending { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--muted-ink); }
+.result.found { background: var(--found-bg); color: var(--found); border-color: var(--found); }
+.result.outside { background: var(--outside-bg); color: var(--outside); border-color: var(--outside); }
+.result.error { background: var(--error-bg); color: var(--error); border-color: var(--error); }
+.result.pending { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--muted-ink); }
 
+.raw-details { margin: -0.5rem 0 1.25rem; }
 details summary { cursor: pointer; color: var(--muted-ink); font-size: 0.85rem; }
 
 pre {

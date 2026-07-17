@@ -6,9 +6,19 @@
 const form = document.getElementById("locate-form");
 const layerSelect = document.getElementById("layer");
 const layerHint = document.getElementById("layer-hint");
-const resultCard = document.getElementById("result-card");
 const resultEl = document.getElementById("result");
+const rawDetails = document.getElementById("raw-details");
 const rawEl = document.getElementById("raw");
+
+// Toggle aria-invalid so an invalid field is conveyed to assistive tech by more
+// than the visual (red) border alone.
+function setInvalid(el, invalid) {
+  if (invalid) {
+    el.setAttribute("aria-invalid", "true");
+  } else {
+    el.removeAttribute("aria-invalid");
+  }
+}
 
 // Populate the layer dropdown from GET /layers, so adding a layer in config.toml
 // shows up here with no code change.
@@ -39,11 +49,18 @@ function updateLayerHint() {
 }
 
 function render(status, detail, payload) {
-  resultCard.hidden = false;
-  resultEl.className = status; // "found" | "outside" | "error"
+  // "found" | "outside" | "error" | "pending" — drives colour AND the message
+  // text, so state never depends on colour alone.
+  resultEl.className = `result ${status}`;
   resultEl.textContent = detail;
-  rawEl.textContent = payload ? JSON.stringify(payload, null, 2) : "";
-  resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  if (payload) {
+    rawEl.textContent = JSON.stringify(payload, null, 2);
+    rawDetails.hidden = false;
+  } else {
+    rawEl.textContent = "";
+    rawDetails.hidden = true;
+  }
+  resultEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 async function locate(lat, lon, layer) {
@@ -84,11 +101,18 @@ async function locate(lat, lon, layer) {
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
-  const lat = parseFloat(document.getElementById("lat").value);
-  const lon = parseFloat(document.getElementById("lon").value);
+  const latEl = document.getElementById("lat");
+  const lonEl = document.getElementById("lon");
+  const lat = parseFloat(latEl.value);
+  const lon = parseFloat(lonEl.value);
   const layer = layerSelect.value;
-  if (Number.isNaN(lat) || Number.isNaN(lon)) {
+  const latBad = Number.isNaN(lat);
+  const lonBad = Number.isNaN(lon);
+  setInvalid(latEl, latBad);
+  setInvalid(lonEl, lonBad);
+  if (latBad || lonBad) {
     render("error", "Enter a numeric latitude and longitude.", null);
+    (latBad ? latEl : lonEl).focus();
     return;
   }
   locate(lat, lon, layer);
@@ -137,11 +161,15 @@ async function locateAddress(address, layer) {
 
 addressForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  const address = document.getElementById("address").value.trim();
+  const addressEl = document.getElementById("address");
+  const address = addressEl.value.trim();
   if (!address) {
+    setInvalid(addressEl, true);
     render("error", "Enter an address.", null);
+    addressEl.focus();
     return;
   }
+  setInvalid(addressEl, false);
   locateAddress(address, layerSelect.value);
 });
 
