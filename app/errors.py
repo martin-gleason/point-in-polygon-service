@@ -11,6 +11,8 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.geocoding.base import GeocoderUnavailable
+from app.geocoding.registry import UnknownProviderError
 from app.lookup import InvalidCoordinateError, UnknownLayerError
 
 
@@ -31,6 +33,18 @@ async def _invalid_coordinate(
     return error_response(400, "invalid_coordinate", str(exc))
 
 
+async def _geocoder_unavailable(
+    request: Request, exc: GeocoderUnavailable
+) -> JSONResponse:
+    # 502: an upstream geocoder failed (SPEC §4). The exception message is
+    # already sanitized of any address/token by the adapter (§9).
+    return error_response(502, "geocoder_unavailable", str(exc))
+
+
+async def _unknown_provider(request: Request, exc: UnknownProviderError) -> JSONResponse:
+    return error_response(400, "unknown_provider", str(exc))
+
+
 async def _validation(request: Request, exc: RequestValidationError) -> JSONResponse:
     # SPEC §4 wants 400 for invalid params; FastAPI's default for validation is
     # 422, so we remap and flatten the detail into one human-readable message.
@@ -44,4 +58,6 @@ async def _validation(request: Request, exc: RequestValidationError) -> JSONResp
 def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(UnknownLayerError, _unknown_layer)
     app.add_exception_handler(InvalidCoordinateError, _invalid_coordinate)
+    app.add_exception_handler(GeocoderUnavailable, _geocoder_unavailable)
+    app.add_exception_handler(UnknownProviderError, _unknown_provider)
     app.add_exception_handler(RequestValidationError, _validation)

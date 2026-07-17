@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import os
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -46,8 +46,25 @@ class LayerConfig:
 
 
 @dataclass(frozen=True)
+class GeocoderConfig:
+    """One configured geocoder provider (a [[geocoders]] entry).
+
+    `options` is the whole entry (id, type, base_url, token_env, timeout, …); the
+    registry builds the concrete adapter from it by dispatching on `type`.
+    """
+
+    id: str
+    type: str
+    options: dict
+
+
+@dataclass(frozen=True)
 class AppConfig:
     layers: dict[str, LayerConfig]
+    geocoders: dict[str, GeocoderConfig] = field(default_factory=dict)
+    # The provider used when a request names none — the first configured, or None
+    # if the deployment runs layers-only (POST /locate needs no geocoder).
+    default_geocoder: str | None = None
 
 
 def default_config_path() -> Path:
@@ -112,4 +129,40 @@ def load_config(config_path: Path | None = None) -> AppConfig:
             source=entry["source"],
         )
 
-    return AppConfig(layers=layers)
+    geocoders, default_geocoder = _parse_geocoders(raw, path)
+    return AppConfig(
+        layers=layers, geocoders=geocoders, default_geocoder=default_geocoder
+    )
+
+
+def _parse_geocoders(
+    raw: dict, path: Path
+) -> tuple[dict[str, GeocoderConfig], str | None]:
+    """Parse the optional [[geocoders]] array. Absent is fine — a deployment may
+    run layers-only (POST /locate needs no geocoder)."""
+    raw_geocoders = raw.get("geocoders", [])
+    if not isinstance(raw_geocoders, list):
+        raise ConfigError(
+            f"{path}: 'geocoders' must be an array of tables ([[geocoders]]), "
+            f"not {type(raw_geocoders).__name__}"
+        )
+
+    geocoders: dict[str, GeocoderConfig] = {}
+    default_geocoder: str | None = None
+    for entry in raw_geocoders:
+        for key in ("id", "type"):
+            if key not in entry:
+                raise ConfigError(
+                    f"{path}: geocoder entry {entry.get('id', '<no id>')!r} "
+                    f"is missing required key {key!r}"
+                )
+        geocoder_id = entry["id"]
+        if geocoder_id in geocoders:
+            raise ConfigError(f"{path}: duplicate geocoder id {geocoder_id!r}")
+        geocoders[geocoder_id] = GeocoderConfig(
+            id=geocoder_id, type=entry["type"], options=dict(entry)
+        )
+        if default_geocoder is None:
+            default_geocoder = geocoder_id
+
+    return geocoders, default_geocoder

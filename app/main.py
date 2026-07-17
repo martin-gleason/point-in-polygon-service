@@ -1,31 +1,35 @@
 """F4 — the FastAPI service exposing the SPEC §4 contract.
 
-This is the point-in-polygon slice, standing up the service early to back a
-manual test page (F6): `GET /health`, `GET /layers`, and `POST /locate`
-(point-in-polygon only, no geocoding). The address-based `GET /geocode` and
-`GET /locate` endpoints arrive with the geocoder (F3/F5).
+Endpoints:
+- `GET /health` — liveness + version.
+- `GET /layers` — the configured polygon layers.
+- `GET /geocode?address=&provider=` — address → point (geocode only).
+- `GET /locate?address=&layer=&provider=` — the headline endpoint: geocode → point-in-polygon.
+- `POST /locate` — point-in-polygon only, no geocoding (the pure generic use).
 
 The static test UI is served from `static/` at the root, so `uvicorn app.main:app`
-gives you both the JSON API and a page to exercise it. Run with
-`--no-access-log` so query parameters are never written to a log (SPEC §9,
-no-PII; D5).
+gives both the JSON API and a page to exercise it. Run with `--no-access-log` so
+addresses (which the §4 GET endpoints carry in the query string) are never
+written to a log (SPEC §9, no-PII; D5).
 
 ArcGIS / ArcPy equivalent
-    This is the open-source analogue of publishing an ArcGIS GeoProcessing
-    service or a GeoServices REST endpoint — the same "point in, JSON out" HTTP
-    surface, served by FastAPI/uvicorn instead of ArcGIS Server, with no license.
+    The open-source analogue of publishing an ArcGIS GeoProcessing / GeoServices
+    REST endpoint — "address or point in, JSON out" — served by FastAPI/uvicorn
+    instead of ArcGIS Server, with no license.
 """
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.staticfiles import StaticFiles
 
 from app.config import AppConfig, load_config
 from app.errors import install_error_handlers
-from app.lookup import PolygonLookup
+from app.geocoding.base import GeocodeResult, Geocoder, GeocoderUnavailable
+from app.geocoding.registry import UnknownProviderError, build_geocoders
+from app.lookup import PolygonLookup, UnknownLayerError
 from app.models import (
     HealthResponse,
     LayerInfo,
@@ -46,8 +50,23 @@ def _service_version() -> str:
         return "0.1.0"  # running from source, package not installed
 
 
+def _geocode_dict(result: GeocodeResult) -> dict:
+    """The SPEC §4 geocode object. A match carries point/score/matched_address;
+    a no-match carries `point: null` and omits score/matched_address."""
+    body = {"query": result.query, "matched": result.matched, "provider": result.provider}
+    if result.matched and result.point is not None:
+        longitude, latitude = result.point
+        body["point"] = {"lon": longitude, "lat": latitude}
+        body["score"] = result.score
+        body["matched_address"] = result.matched_address
+    else:
+        body["point"] = None
+    return body
+
+
 def create_app(config: AppConfig | None = None) -> FastAPI:
-    """Build the app. Loads config + layers once at startup (fail-fast)."""
+    """Build the app. Loads config, layers, and geocoders once at startup
+    (fail-fast on a bad config or missing data)."""
     app = FastAPI(
         title="Point-in-Polygon Service",
         version=_service_version(),
@@ -55,11 +74,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     )
 
     app_config = config if config is not None else load_config()
-    lookup = PolygonLookup(app_config)
     app.state.config = app_config
-    app.state.lookup = lookup
+    app.state.lookup = PolygonLookup(app_config)
+    app.state.geocoders = build_geocoders(app_config)
+    app.state.default_geocoder = app_config.default_geocoder
 
     install_error_handlers(app)
+
+    def select_geocoder(request: Request, provider: str | None) -> Geocoder:
+        geocoders: dict[str, Geocoder] = request.app.state.geocoders
+        provider_id = provider or request.app.state.default_geocoder
+        if provider_id is None:
+            raise GeocoderUnavailable("no geocoder is configured")
+        try:
+            return geocoders[provider_id]
+        except KeyError:
+            raise UnknownProviderError(
+                f"unknown provider {provider!r}; configured: {sorted(geocoders)}"
+            ) from None
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -82,6 +114,51 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             ]
         )
 
+    @app.get("/geocode")
+    def geocode(
+        request: Request,
+        address: str = Query(..., description="street address to geocode"),
+        provider: str | None = Query(None, description="geocoder provider id"),
+    ) -> dict:
+        geocoder = select_geocoder(request, provider)
+        return _geocode_dict(geocoder.geocode(address))
+
+    @app.get("/locate")
+    def locate(
+        request: Request,
+        address: str = Query(..., description="street address to locate"),
+        layer: str = Query(..., description="configured layer id"),
+        provider: str | None = Query(None, description="geocoder provider id"),
+    ) -> dict:
+        engine: PolygonLookup = request.app.state.lookup
+        # Validate the layer before the external geocode call, so an unknown
+        # layer is a fast 404 and we don't spend a geocode on it.
+        if layer not in engine.layer_ids:
+            raise UnknownLayerError(
+                f"unknown layer {layer!r}; configured: {list(engine.layer_ids)}"
+            )
+
+        geocoder = select_geocoder(request, provider)
+        result = geocoder.geocode(address)
+        geocode_body = _geocode_dict(result)
+        if not result.matched or result.point is None:
+            # Address didn't geocode: return the geocode object with no match.
+            return {"query": address, "geocode": geocode_body, "layer": layer}
+
+        longitude, latitude = result.point
+        match = engine.locate(longitude, latitude, layer)
+        match_body: dict = {"found": match.found}
+        if match.found:
+            match_body["feature"] = match.feature
+        else:
+            match_body["reason"] = match.reason
+        return {
+            "query": address,
+            "geocode": geocode_body,
+            "layer": layer,
+            "match": match_body,
+        }
+
     @app.post(
         "/locate",
         response_model=LocatePointResponse,
@@ -89,16 +166,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     )
     def locate_point(body: LocatePointRequest, request: Request) -> LocatePointResponse:
         engine: PolygonLookup = request.app.state.lookup
-        # UnknownLayerError / InvalidCoordinateError are mapped to 404 / 400 by
-        # the installed handlers (SPEC §4 error model).
         match = engine.locate(body.lon, body.lat, body.layer)
         return LocatePointResponse(
             layer=body.layer,
             match=MatchModel(found=match.found, feature=match.feature, reason=match.reason),
         )
 
-    # Serve the static test UI last, so the API routes above take precedence and
-    # everything else (/, /app.js, /style.css) is served from static/.
+    # Serve the static test UI last, so the API routes above take precedence.
     if STATIC_DIR.is_dir():
         app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 
