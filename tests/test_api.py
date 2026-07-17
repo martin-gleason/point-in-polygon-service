@@ -29,6 +29,14 @@ ARCGIS_FIND_URL = (
     "AddressLocator/CookAddressComposite/GeocodeServer/findAddressCandidates"
 )
 
+# The default provider is now the `cook_county_arcgis → census` chain (F5, D7),
+# so when the ArcGIS locator fails on transport the chain falls through to
+# Census. A "502 upstream failure" therefore means BOTH providers are down —
+# tests that assert 502 mock this Census endpoint failing too.
+CENSUS_ONELINE_URL = (
+    "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
+)
+
 
 def _candidate(address, lon, lat, score):
     return {"candidates": [{"address": address, "location": {"x": lon, "y": lat}, "score": score}]}
@@ -150,7 +158,9 @@ def test_geocode_unknown_provider_400(client):
 
 @respx.mock
 def test_geocode_upstream_failure_502(client):
+    # Both providers in the default chain fail → the chain exhausts → 502 (D7).
     respx.post(ARCGIS_FIND_URL).mock(return_value=httpx.Response(500))
+    respx.get(CENSUS_ONELINE_URL).mock(return_value=httpx.Response(500))
     response = client.get("/geocode", params={"address": "121 N LaSalle St"})
     assert response.status_code == 502
     assert response.json()["error"]["code"] == "geocoder_unavailable"
@@ -206,7 +216,9 @@ def test_locate_unknown_layer_404_before_geocode(client):
 
 @respx.mock
 def test_locate_address_upstream_failure_502(client):
+    # Whole default chain down (ArcGIS connect error + Census 500) → 502 (D7).
     respx.post(ARCGIS_FIND_URL).mock(side_effect=httpx.ConnectError("down"))
+    respx.get(CENSUS_ONELINE_URL).mock(return_value=httpx.Response(500))
     response = client.get(
         "/locate", params={"address": "121 N LaSalle St", "layer": "police_districts"}
     )
