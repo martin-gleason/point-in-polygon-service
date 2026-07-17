@@ -94,6 +94,64 @@ form.addEventListener("submit", (event) => {
   locate(lat, lon, layer);
 });
 
+// Address search: geocode + point-in-polygon via GET /locate.
+const addressForm = document.getElementById("address-form");
+
+async function locateAddress(address, layer) {
+  render("pending", "Geocoding…", null);
+  let response;
+  try {
+    const query = `address=${encodeURIComponent(address)}&layer=${encodeURIComponent(layer)}`;
+    response = await fetch(`/locate?${query}`);
+  } catch (error) {
+    render("error", `Network error: ${error.message}`, null);
+    return;
+  }
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      payload && payload.error
+        ? `${payload.error.code}: ${payload.error.message}`
+        : `Request failed (${response.status})`;
+    render("error", message, payload);
+    return;
+  }
+
+  if (!payload.geocode.matched) {
+    render("outside", `Could not geocode “${payload.query}”.`, payload);
+    return;
+  }
+
+  const where = payload.geocode.matched_address || payload.query;
+  const match = payload.match;
+  if (match && match.found) {
+    const fields = Object.entries(match.feature)
+      .map(([key, value]) => `${key} = ${value === null ? "—" : value}`)
+      .join(", ");
+    render("found", `${where} → ${payload.layer}: ${fields}`, payload);
+  } else {
+    render("outside", `${where} → not found: ${match ? match.reason : "no match"}`, payload);
+  }
+}
+
+addressForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const address = document.getElementById("address").value.trim();
+  if (!address) {
+    render("error", "Enter an address.", null);
+    return;
+  }
+  locateAddress(address, layerSelect.value);
+});
+
+for (const button of document.querySelectorAll(".address-preset")) {
+  button.addEventListener("click", () => {
+    document.getElementById("address").value = button.dataset.address;
+    locateAddress(button.dataset.address, layerSelect.value);
+  });
+}
+
 layerSelect.addEventListener("change", updateLayerHint);
 
 for (const button of document.querySelectorAll(".preset")) {

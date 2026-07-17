@@ -63,16 +63,29 @@
       </details>
     </section>
 
-    <section class="card muted">
+    <section class="card">
       <h2>Address search</h2>
       <p>
-        Typing a street address (instead of coordinates) needs the geocoder,
-        which arrives with <strong>F3</strong>. The field below is a placeholder
-        so you can see where it will slot in.
+        Type a street address — it is geocoded, then located in the layer
+        selected above. (<code>GET /locate</code>.)
       </p>
-      <div class="field">
-        <label for="address">Address <span class="tag">coming with F3</span></label>
-        <input id="address" type="text" placeholder="121 N LaSalle St, Chicago" disabled>
+      <form id="address-form" novalidate>
+        <div class="field">
+          <label for="address">Address</label>
+          <input id="address" name="address" type="text" required
+                 placeholder="121 N LaSalle St, Chicago">
+        </div>
+        <button type="submit" id="address-submit">Find</button>
+      </form>
+
+      <div class="presets">
+        <span class="presets-label">Try:</span>
+        <button type="button" class="address-preset"
+                data-address="121 N LaSalle St, Chicago, IL">121 N LaSalle St</button>
+        <button type="button" class="address-preset"
+                data-address="1060 W Addison St, Chicago, IL">Wrigley Field</button>
+        <button type="button" class="address-preset"
+                data-address="633 Clark St, Evanston, IL">Evanston (suburb)</button>
       </div>
     </section>
   </main>
