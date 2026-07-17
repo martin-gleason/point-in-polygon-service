@@ -134,17 +134,24 @@ def load_config(config_path: Path | None = None) -> AppConfig:
             source=entry["source"],
         )
 
-    geocoders, default_geocoder = _parse_geocoders(raw, path)
+    geocoders, default_geocoder = _parse_geocoders(raw, path, base_dir)
     return AppConfig(
         layers=layers, geocoders=geocoders, default_geocoder=default_geocoder
     )
 
 
 def _parse_geocoders(
-    raw: dict, path: Path
+    raw: dict, path: Path, base_dir: Path
 ) -> tuple[dict[str, GeocoderConfig], str | None]:
     """Parse the optional [[geocoders]] array. Absent is fine — a deployment may
-    run layers-only (POST /locate needs no geocoder)."""
+    run layers-only (POST /locate needs no geocoder).
+
+    The provider used when a request names none is chosen explicitly with
+    ``default = true`` on one entry (typically the fallback chain); with none
+    marked, it falls back to the first configured provider. ``base_dir`` (the
+    directory holding config.toml) is threaded into each entry as ``_config_dir``
+    so a provider with a relative data path — the offline ``local_points`` layer
+    — resolves it against the config, not the process's working directory."""
     raw_geocoders = raw.get("geocoders", [])
     if not isinstance(raw_geocoders, list):
         raise ConfigError(
@@ -153,7 +160,8 @@ def _parse_geocoders(
         )
 
     geocoders: dict[str, GeocoderConfig] = {}
-    default_geocoder: str | None = None
+    first_geocoder: str | None = None
+    explicit_default: str | None = None
     for entry in raw_geocoders:
         if not isinstance(entry, dict):
             raise ConfigError(
@@ -169,10 +177,20 @@ def _parse_geocoders(
         geocoder_id = entry["id"]
         if geocoder_id in geocoders:
             raise ConfigError(f"{path}: duplicate geocoder id {geocoder_id!r}")
-        geocoders[geocoder_id] = GeocoderConfig(
-            id=geocoder_id, type=entry["type"], options=dict(entry)
-        )
-        if default_geocoder is None:
-            default_geocoder = geocoder_id
 
-    return geocoders, default_geocoder
+        options = dict(entry)
+        options["_config_dir"] = str(base_dir)
+        geocoders[geocoder_id] = GeocoderConfig(
+            id=geocoder_id, type=entry["type"], options=options
+        )
+        if first_geocoder is None:
+            first_geocoder = geocoder_id
+        if entry.get("default"):
+            if explicit_default is not None:
+                raise ConfigError(
+                    f"{path}: more than one geocoder marked default "
+                    f"({explicit_default!r} and {geocoder_id!r}); mark exactly one"
+                )
+            explicit_default = geocoder_id
+
+    return geocoders, explicit_default or first_geocoder

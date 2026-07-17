@@ -34,3 +34,47 @@ base_url = "https://gis.cookcountyil.gov/traditional/rest/services/AddressLocato
 timeout = 10.0
 min_score = 0.0
 # token_env = "COOK_GEOCODER_TOKEN"   # uncomment only for a secured server (mode 2)
+
+# US Census onelineaddress — free, no key, US-wide (SPEC §5 mode 1). The
+# fallback after the county locator: national coverage where Cook County's
+# locator has none.
+[[geocoders]]
+id = "census"
+type = "census"
+
+# The default fallback chain (F5, D7): try the county ArcGIS locator first, fall
+# through to Census ONLY on a transport failure (timeout/5xx) — an authoritative
+# "no match" from the first provider stops the chain (mixing providers makes
+# D6 scores incomparable). `default = true` makes this the provider used when a
+# request names none; `?provider=cook_county_arcgis` still targets one directly.
+[[geocoders]]
+id = "default"
+type = "chain"
+providers = ["cook_county_arcgis", "census"]
+default = true
+
+# ---- Opt-in providers (uncomment + configure) --------------------------------
+# Nominatim (SPEC §5 mode 2). The PUBLIC instance is opt-in and NOT in the
+# default chain — a shared public instance is not for service traffic (≤1 req/s
+# policy). Fully supported when self-hosted: point base_url at your instance.
+# user_agent is REQUIRED by the OSM usage policy.
+# [[geocoders]]
+# id = "nominatim"
+# type = "nominatim"
+# user_agent = "point-in-polygon-service (you@agency.gov)"
+# base_url = "https://nominatim.openstreetmap.org"
+
+# Fully-offline / air-gapped (SPEC §5 mode 3). Matches against a local
+# address-point GeoPackage — no server, no internet. Build the layer locally:
+#   python scripts/build_data.py --address-points
+# (the full county file is ~2M points and is never committed). `path` resolves
+# relative to this config file.
+# [[geocoders]]
+# id = "offline"
+# type = "local_points"
+# path = "data/address_points.gpkg"
+# layer = "address_points"
+# number_field = "number"
+# street_field = "street"
+# city_field = "city"
+# zip_field = "zip"
