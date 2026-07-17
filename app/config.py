@@ -94,6 +94,11 @@ def load_config(config_path: Path | None = None) -> AppConfig:
     base_dir = path.resolve().parent
     layers: dict[str, LayerConfig] = {}
     for entry in raw_layers:
+        if not isinstance(entry, dict):
+            raise ConfigError(
+                f"{path}: every [[layers]] entry must be a table, "
+                f"not {type(entry).__name__}"
+            )
         missing = [key for key in REQUIRED_LAYER_KEYS if key not in entry]
         if missing:
             raise ConfigError(
@@ -150,6 +155,11 @@ def _parse_geocoders(
     geocoders: dict[str, GeocoderConfig] = {}
     default_geocoder: str | None = None
     for entry in raw_geocoders:
+        if not isinstance(entry, dict):
+            raise ConfigError(
+                f"{path}: every [[geocoders]] entry must be a table, "
+                f"not {type(entry).__name__}"
+            )
         for key in ("id", "type"):
             if key not in entry:
                 raise ConfigError(
