@@ -114,6 +114,73 @@ def test_unparseable_single_token_query_misses(geocoder):
     assert geocoder.geocode("Chicago").matched is False
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        "121 N La Salle St, Chicago, IL 60602",  # full USPS form
+        "121 N La Salle St, Chicago, 60602",     # no state
+        "121 N La Salle St, Chicago",            # city only
+        "121 N La Salle St 60602",               # bare trailing ZIP, no comma
+        "121 north la salle street, CHICAGO, il, 60602",  # verbose + tail
+    ],
+)
+def test_full_address_forms_match(geocoder, query):
+    # Regression: a trailing city/state/ZIP must NOT poison the street key — the
+    # most common way people write an address has to geocode (SPEC §5 mode 3).
+    result = geocoder.geocode(query)
+    assert result.matched is True, query
+    assert result.point == pytest.approx((-87.63192, 41.88354), abs=1e-5)
+
+
+def test_directional_suffix_not_mistaken_for_state(tmp_path):
+    # A 2-letter directional SUFFIX ("ST NE") must survive parsing — only a
+    # post-comma 2-letter token is treated as a state.
+    frame = gpd.GeoDataFrame(
+        {"NUMBER": ["500"], "STREET": ["MADISON ST NE"], "CITY": ["WASHINGTON"], "ZIP": ["20002"]},
+        geometry=[Point(*_FWD.transform(-87.6, 41.88))],
+        crs="EPSG:3435",
+    )
+    gpkg = tmp_path / "ne.gpkg"
+    frame.to_file(gpkg, layer="points", driver="GPKG")
+    geocoder = LocalAddressPointGeocoder(
+        name="ne", path=gpkg, layer="points", number_field="NUMBER", street_field="STREET"
+    )
+    assert geocoder.geocode("500 Madison St NE").matched is True
+
+
+def test_city_zip_filter_disambiguates_duplicate_street(tmp_path):
+    # Same house-number-and-street in two municipalities: the city/ZIP hint must
+    # pick the right one, and the county-wide table must not drop either (the
+    # index is list-valued, not last-wins).
+    cicero = Point(*_FWD.transform(-87.75, 41.84))
+    berwyn = Point(*_FWD.transform(-87.79, 41.85))
+    frame = gpd.GeoDataFrame(
+        {
+            "NUMBER": ["100", "100"],
+            "STREET": ["MAIN ST", "MAIN ST"],
+            "CITY": ["CICERO", "BERWYN"],
+            "ZIP": ["60804", "60402"],
+        },
+        geometry=[cicero, berwyn],
+        crs="EPSG:3435",
+    )
+    gpkg = tmp_path / "dup.gpkg"
+    frame.to_file(gpkg, layer="points", driver="GPKG")
+    geocoder = LocalAddressPointGeocoder(
+        name="dup", path=gpkg, layer="points",
+        number_field="NUMBER", street_field="STREET", city_field="CITY", zip_field="ZIP",
+    )
+    by_city = geocoder.geocode("100 Main St, Berwyn")
+    assert by_city.matched is True
+    assert by_city.point == pytest.approx((-87.79, 41.85), abs=1e-4)
+
+    by_zip = geocoder.geocode("100 Main St, 60804")
+    assert by_zip.point == pytest.approx((-87.75, 41.84), abs=1e-4)
+
+    # No hint → first-match (deterministic), still a match not a miss.
+    assert geocoder.geocode("100 Main St").matched is True
+
+
 def test_geocode_never_raises_geocoder_unavailable(geocoder):
     # Belt-and-suspenders: the whole point of mode 3 is it can't be "unavailable".
     try:
