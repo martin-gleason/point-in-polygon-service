@@ -152,7 +152,12 @@ your own hardware:
 python scripts/build_data.py --address-points
 ```
 
-Then enable the provider in `config.toml` (the block is present, commented):
+Then enable the provider in `config.toml` (the block is present, commented) **and
+make it the default** — this second step is essential. Requests that don't name a
+`?provider=` (the test UI sends none) go to whichever provider carries
+`default = true`, and out of the box that is the online `cook_county_arcgis →
+census` chain, which is unreachable on an air-gapped box. Move the default onto
+the offline provider:
 
 ```toml
 [[geocoders]]
@@ -164,11 +169,18 @@ number_field = "number"
 street_field = "street"
 city_field = "city"
 zip_field = "zip"
+default = true          # ← the no-provider default; without this, requests
+                        #   still hit the online chain and fail with no internet
 ```
 
+and remove `default = true` from the `[[geocoders]] id = "default"` chain block
+(exactly one provider may be marked default — the service refuses to start with
+two). The online `cook_county_arcgis` / `census` entries can be left in place
+(they simply go unused offline) or commented out.
+
 See `docs/data-provenance.md` for the address-point source and build details.
-With this in place the service geocodes and locates a district with no server, no
-internet, and no ArcGIS license.
+With the offline provider **as the default**, the service geocodes and locates a
+district with no server, no internet, and no ArcGIS license.
 
 ---
 
