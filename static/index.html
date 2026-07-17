@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Point-in-Polygon Service — test</title>
+  <title>Point-in-Polygon Service — coordinate &amp; address lookup</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <main>
+  <header>
     <h1>Point-in-Polygon Service</h1>
     <p class="lede">
       Enter a point and a layer to find the polygon that contains it. This test
@@ -15,13 +15,15 @@
       contract is at <a href="/openapi.json">/openapi.json</a> (offline-safe);
       <a href="/docs">/docs</a> renders it as Swagger UI when online.
     </p>
+  </header>
 
-    <section class="card">
-      <h2>Look up a point</h2>
+  <main>
+    <section class="card" aria-labelledby="locate-heading">
+      <h2 id="locate-heading">Look up a point</h2>
       <form id="locate-form" novalidate>
         <div class="field">
           <label for="layer">Layer</label>
-          <select id="layer" name="layer" required></select>
+          <select id="layer" name="layer" required aria-describedby="layer-hint"></select>
           <span class="hint" id="layer-hint"></span>
         </div>
 
@@ -29,42 +31,48 @@
           <div class="field">
             <label for="lat">Latitude</label>
             <input id="lat" name="lat" type="number" step="any" required
-                   placeholder="41.88354" inputmode="decimal">
+                   placeholder="41.88354" inputmode="decimal"
+                   aria-describedby="coord-hint">
           </div>
           <div class="field">
             <label for="lon">Longitude</label>
             <input id="lon" name="lon" type="number" step="any" required
-                   placeholder="-87.63192" inputmode="decimal">
+                   placeholder="-87.63192" inputmode="decimal"
+                   aria-describedby="coord-hint">
           </div>
         </div>
+        <p class="hint" id="coord-hint">Decimal degrees (WGS 84), e.g. 41.88354, -87.63192.</p>
 
         <button type="submit" id="submit">Locate</button>
       </form>
 
       <div class="presets">
-        <span class="presets-label">Try:</span>
-        <button type="button" class="preset" data-lat="41.88354" data-lon="-87.63192"
-                data-layer="police_districts">Chicago City Hall → District 1</button>
-        <button type="button" class="preset" data-lat="41.94741" data-lon="-87.65543"
-                data-layer="police_districts">Wrigley Field → District 19</button>
-        <button type="button" class="preset" data-lat="42.04512" data-lon="-87.68770"
-                data-layer="police_districts">Evanston → outside all districts</button>
-        <button type="button" class="preset" data-lat="42.04512" data-lon="-87.68770"
-                data-layer="municipalities">Evanston → municipality</button>
+        <span class="presets-label" id="point-presets-label">Try:</span>
+        <div class="preset-list" role="group" aria-labelledby="point-presets-label">
+          <button type="button" class="preset" data-lat="41.88354" data-lon="-87.63192"
+                  data-layer="police_districts">Chicago City Hall → District 1</button>
+          <button type="button" class="preset" data-lat="41.94741" data-lon="-87.65543"
+                  data-layer="police_districts">Wrigley Field → District 19</button>
+          <button type="button" class="preset" data-lat="42.04512" data-lon="-87.68770"
+                  data-layer="police_districts">Evanston → outside all districts</button>
+          <button type="button" class="preset" data-lat="42.04512" data-lon="-87.68770"
+                  data-layer="municipalities">Evanston → municipality</button>
+        </div>
       </div>
     </section>
 
-    <section class="card" id="result-card" hidden>
-      <h2>Result</h2>
-      <div id="result" role="status" aria-live="polite"></div>
-      <details>
-        <summary>Raw JSON</summary>
-        <pre id="raw"></pre>
-      </details>
-    </section>
+    <!-- Status/result: an ARIA live region kept permanently in the DOM (never
+         `hidden`) so the very first outcome — including each failure message —
+         is announced to screen-reader users. When empty it has no visual
+         footprint (see .result:not(:empty) in style.css). -->
+    <div id="result" class="result" role="status" aria-live="polite" aria-atomic="true"></div>
+    <details id="raw-details" class="raw-details" hidden>
+      <summary>Raw JSON response</summary>
+      <pre id="raw"></pre>
+    </details>
 
-    <section class="card">
-      <h2>Address search</h2>
+    <section class="card" aria-labelledby="address-heading">
+      <h2 id="address-heading">Address search</h2>
       <p>
         Type a street address — it is geocoded, then located in the layer
         selected above. (<code>GET /locate</code>.)
@@ -73,19 +81,22 @@
         <div class="field">
           <label for="address">Address</label>
           <input id="address" name="address" type="text" required
+                 autocomplete="street-address"
                  placeholder="121 N LaSalle St, Chicago">
         </div>
         <button type="submit" id="address-submit">Find</button>
       </form>
 
       <div class="presets">
-        <span class="presets-label">Try:</span>
-        <button type="button" class="address-preset"
-                data-address="121 N LaSalle St, Chicago, IL">121 N LaSalle St</button>
-        <button type="button" class="address-preset"
-                data-address="1060 W Addison St, Chicago, IL">Wrigley Field</button>
-        <button type="button" class="address-preset"
-                data-address="633 Clark St, Evanston, IL">Evanston (suburb)</button>
+        <span class="presets-label" id="address-presets-label">Try:</span>
+        <div class="preset-list" role="group" aria-labelledby="address-presets-label">
+          <button type="button" class="address-preset"
+                  data-address="121 N LaSalle St, Chicago, IL">121 N LaSalle St</button>
+          <button type="button" class="address-preset"
+                  data-address="1060 W Addison St, Chicago, IL">Wrigley Field</button>
+          <button type="button" class="address-preset"
+                  data-address="633 Clark St, Evanston, IL">Evanston (suburb)</button>
+        </div>
       </div>
     </section>
   </main>
