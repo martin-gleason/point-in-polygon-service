@@ -10,7 +10,9 @@ open-source and key-free.
 
 - **Intention + API contract:** `docs/specs/SPEC.md` — the contract. Do **not**
   edit it to match the code; propose deltas, the maintainer ratifies.
-- **Build detail:** `docs/plans/PLAN.md` — mutable.
+- **Build detail:** the v1 plan is archived at
+  `docs/plans/v1.0-archive/PLAN.md` (v1.0.0 shipped 2026-07-17). New work gets a
+  fresh mutable plan under `docs/plans/`.
 
 ## Golden rules
 
