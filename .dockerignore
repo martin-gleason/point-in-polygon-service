@@ -1,0 +1,31 @@
+# Build context excludes — keep the image lean and the layers reproducible.
+# The Dockerfile COPYs an explicit allowlist; this is defense in depth so a
+# stray file never sneaks into the context.
+
+# Tests, docs, and operator scripts are not part of the runtime.
+tests/
+docs/
+scripts/
+
+# Build/dev artifacts.
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# VCS and tooling.
+.git/
+.gitignore
+.github/
+.claude/
+
+# OS cruft and the session scratchpad.
+.DS_Store
+scratchpad/
+
+# Raw source data — the image ships only the built data/layers.gpkg.
+data/raw/
