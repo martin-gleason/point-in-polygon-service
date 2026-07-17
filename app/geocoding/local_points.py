@@ -8,18 +8,19 @@ hit. Because there is no transport, this geocoder never raises
 `GeocoderUnavailable`; an address it doesn't hold is simply a `no_match`.
 
 Matching pipeline
-    query → split leading house number from the rest → normalize each half
-    (app.geocoding.normalize) → look up the exact (number, street) key built the
-    same way from every reference row at load time. Two spellings of one address
-    ("121 North La Salle Street" / "121 N LASALLE ST") canonicalize to the same
-    key, so equality is meaningful.
+    query → parse into (house number, street line, optional city/ZIP tail) →
+    normalize number and street (app.geocoding.normalize) → look up the exact
+    (number, street) key built the same way from every reference row at load
+    time. Two spellings of one address ("121 North La Salle Street" /
+    "121 N LASALLE ST") canonicalize to the same key, so equality is meaningful.
+    When a query carries a city or ZIP, it is used as an optional filter (D8) to
+    disambiguate the same street number that recurs across municipalities.
 
-    v1 limitation: the query is parsed by a single leading-number split — the
-    first whitespace-separated token is treated as the house number and the
-    remainder as the street line. This handles the common "<number> <street>"
-    form (optionally with a trailing ", City, ZIP" that normalization folds into
-    the street tokens); it does not parse unit numbers, intersections, PO boxes,
-    or addresses with no leading number. Those simply miss → no_match.
+    v1 limitation: the parser handles the common "<number> <street>" form and a
+    trailing ", City, ST, ZIP" (or a bare trailing ZIP) — the number is the
+    leading token, the street line is what remains after the city/state/ZIP tail
+    is stripped. It does not parse unit numbers, intersections, PO boxes, or
+    addresses with no leading number. Those simply miss → no_match.
 
 ArcGIS / ArcPy equivalent
     Replaces building and geocoding against a local *address-point* locator —
@@ -32,6 +33,7 @@ ArcGIS / ArcPy equivalent
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -43,6 +45,14 @@ from app.geocoding.normalize import normalize_number, normalize_street
 # WGS84 lon/lat is the API's coordinate system (SPEC §4); every point the
 # geocoder returns is reprojected to it at load time.
 WGS84 = "EPSG:4326"
+
+# A US ZIP: five digits, optionally + four (ZIP+4). Used to peel a ZIP off the
+# end of a query and to recognize a ZIP token in the city/state/ZIP tail.
+_ZIP_RE = re.compile(r"^\d{5}(?:-\d{4})?$")
+
+
+def _is_zip(token: str) -> bool:
+    return bool(_ZIP_RE.match(token))
 
 
 @dataclass(frozen=True)
@@ -133,7 +143,12 @@ class LocalAddressPointGeocoder:
         if frame.crs.to_epsg() != 4326:
             frame = frame.to_crs(WGS84)
 
-        self._index: dict[tuple[str, str], _AddressPoint] = {}
+        # (number, street) → list of reference points. A list, not a single
+        # value: the same house-number-and-street recurs across municipalities in
+        # a county-wide table (e.g. "100 Main St" in several suburbs), and the
+        # optional city/ZIP filter disambiguates them. A single-valued map would
+        # silently drop all but the last such row (last-wins).
+        self._index: dict[tuple[str, str], list[_AddressPoint]] = {}
         for _, row in frame.iterrows():
             geometry = row.geometry
             if geometry is None or geometry.is_empty:
@@ -151,13 +166,15 @@ class LocalAddressPointGeocoder:
             if not key[0] or not key[1]:
                 continue
 
-            self._index[key] = _AddressPoint(
-                longitude=float(geometry.x),
-                latitude=float(geometry.y),
-                number=str(number_raw).strip(),
-                street=str(street_raw).strip(),
-                city=self._optional(row, city_field),
-                zip_code=self._optional(row, zip_field),
+            self._index.setdefault(key, []).append(
+                _AddressPoint(
+                    longitude=float(geometry.x),
+                    latitude=float(geometry.y),
+                    number=str(number_raw).strip(),
+                    street=str(street_raw).strip(),
+                    city=self._optional(row, city_field),
+                    zip_code=self._optional(row, zip_field),
+                )
             )
 
     @staticmethod
@@ -200,18 +217,22 @@ class LocalAddressPointGeocoder:
 
     def geocode(self, address: str) -> GeocodeResult:
         """Look up `address` in the local reference table by exact normalized
-        key. A hit returns matched=True at score 100.0 (an exact reference-point
-        match is authoritative — there is no fuzzy ranking here); anything else,
-        including an unparseable query, is a `no_match`. Never raises."""
-        number_raw, street_raw = self._split_leading_number(address)
-        if not number_raw or not street_raw:
+        (number, street) key, with the query's city/ZIP as an optional
+        disambiguating filter. A hit returns matched=True at score 100.0 (an
+        exact reference-point match is authoritative — there is no fuzzy ranking
+        here); anything else, including an unparseable query, is a `no_match`.
+        Never raises."""
+        parsed = self._parse_query(address)
+        if parsed is None:
             return GeocodeResult.no_match(address, self.name)
+        number_raw, street_raw, city_hint, zip_hint = parsed
 
         key = (normalize_number(number_raw), normalize_street(street_raw))
-        entry = self._index.get(key)
-        if entry is None:
+        candidates = self._index.get(key)
+        if not candidates:
             return GeocodeResult.no_match(address, self.name)
 
+        entry = self._pick(candidates, city_hint, zip_hint)
         return GeocodeResult(
             query=address,
             matched=True,
@@ -222,13 +243,65 @@ class LocalAddressPointGeocoder:
         )
 
     @staticmethod
-    def _split_leading_number(address: str) -> tuple[str, str]:
-        """Split a query into (house number, street line) on the first
-        whitespace. v1's parser: the leading token is the number, the rest is
-        the street. Returns ("", "") when there is no such split (empty query or
-        a single token) so the caller can short-circuit to no_match."""
+    def _pick(
+        candidates: list["_AddressPoint"], city_hint: str | None, zip_hint: str | None
+    ) -> "_AddressPoint":
+        """Choose among reference points sharing a (number, street) key. If the
+        query carried a city or ZIP, prefer a candidate it matches (the D8
+        optional filter); if the hint matches none, fall back to the first
+        candidate rather than a false miss. First-match on residual ambiguity,
+        matching the engine's D4 stable-first convention."""
+        if city_hint or zip_hint:
+            city = city_hint.upper() if city_hint else None
+            zip5 = zip_hint[:5] if zip_hint else None
+            for candidate in candidates:
+                if city and (candidate.city or "").upper() == city:
+                    return candidate
+                if zip5 and (candidate.zip_code or "")[:5] == zip5:
+                    return candidate
+        return candidates[0]
+
+    @staticmethod
+    def _parse_query(address: str) -> tuple[str, str, str | None, str | None] | None:
+        """Parse a query into (house number, street line, city hint, ZIP hint).
+
+        The leading token of the first comma-segment is the house number and the
+        rest of that segment is the street — after a trailing ZIP is peeled off
+        (a 5-digit or ZIP+4 token can't be part of a street name, so it's safe to
+        strip even without a comma; a bare directional suffix like "NE" is left
+        intact). Anything after the first comma is a city/state/ZIP tail: a
+        ZIP-pattern token becomes the ZIP hint, a 2-letter token is treated as a
+        state and ignored, and the remaining words become the city hint. Returns
+        None when there is no "<number> <street>" to match (empty, single token,
+        or no leading number+street)."""
         stripped = address.strip()
-        parts = stripped.split(maxsplit=1)
-        if len(parts) < 2:
-            return ("", "")
-        return (parts[0], parts[1])
+        if not stripped:
+            return None
+
+        segments = [segment.strip() for segment in stripped.split(",")]
+        head_parts = segments[0].split(maxsplit=1)
+        if len(head_parts) < 2:
+            return None
+        number, street = head_parts[0], head_parts[1]
+
+        zip_hint: str | None = None
+        # A trailing ZIP in the head street line (the no-comma "…St 60602" form).
+        street_tokens = street.split()
+        if len(street_tokens) > 1 and _is_zip(street_tokens[-1]):
+            zip_hint = street_tokens[-1]
+            street = " ".join(street_tokens[:-1])
+
+        city_words: list[str] = []
+        for segment in segments[1:]:
+            for token in segment.split():
+                if _is_zip(token):
+                    zip_hint = token
+                elif len(token) == 2 and token.isalpha():
+                    continue  # a state abbreviation — not used for matching
+                else:
+                    city_words.append(token)
+        city_hint = " ".join(city_words) or None
+
+        if not number or not street:
+            return None
+        return (number, street, city_hint, zip_hint)
