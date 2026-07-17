@@ -19,8 +19,11 @@ implementation plan is drafted and awaiting ratification. No feature code yet.
 | Document | What it is |
 |---|---|
 | `docs/specs/SPEC.md` | The ratified contract — purpose, API, non-negotiables. Frozen. |
-| `docs/plans/PLAN.md` | The implementation plan — features, tasks, gates, hooks. Mutable. |
+| `docs/plans/v1.0-archive/PLAN.md` | The v1 implementation plan — features, tasks, gates, hooks. Archived at v1.0.0; new work gets a fresh plan under `docs/plans/`. |
+| `docs/testing.md` | Testing runbook — the PR-review gate, running the suite, and the confusing edge cases. |
+| `docs/deployment.md` | Deployment guide — shoestring hosts, air-gapped install, the reverse-proxy access-log warning. |
 | `docs/conventions.md` | ID grammar, branch/commit/PR conventions. |
+| `CHANGELOG.md` | Release history (starts at v1.0.0). |
 | `CLAUDE.md` | Standing rules the coding agent works under. |
 
 ## Project layout
