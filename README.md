@@ -60,6 +60,16 @@ uvicorn app.main:app --no-access-log
 the service also serves a static test page at `/` and the generated contract at
 `/openapi.json`.
 
+## Deployment
+
+Hosting options (free-tier PaaS, a ~$5/mo VPS via Docker or systemd, an on-prem
+Windows box) and the fully-offline / air-gapped install path (build a pip
+wheelhouse, carry it over, `pip install --no-index`) are documented in
+[`docs/deployment.md`](docs/deployment.md). It also carries the reverse-proxy
+access-log warning: `--no-access-log` silences the service's own log, but an
+nginx/Apache/ALB you put in front keeps its own log that will capture queried
+addresses from the GET query string unless you disable or scrub it.
+
 ## License
 
 [AGPLv3](LICENSE). The copyleft holds even when the service is run over a
