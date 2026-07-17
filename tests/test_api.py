@@ -122,6 +122,7 @@ def test_geocode_match(client):
     assert body["matched"] is True
     assert body["point"] == {"lon": -87.63231, "lat": 41.88366}
     assert body["score"] == pytest.approx(97.15)
+    assert body["matched_address"] == "121 N LA SALLE ST, CHICAGO, IL"  # §4 match field
     assert body["provider"] == "cook_county_arcgis"
 
 
@@ -132,6 +133,7 @@ def test_geocode_no_match(client):
     assert body["matched"] is False
     assert body["point"] is None  # §4: point:null on no-match
     assert "score" not in body
+    assert "matched_address" not in body  # §4: omitted on no-match
 
 
 def test_geocode_missing_address_400(client):
