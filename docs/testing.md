@@ -19,7 +19,7 @@ stops here before merge.
 
 Before you rebase-and-merge a feature PR, confirm:
 
-1. **CI is green** — the `CI` check (tests + secret scan, see §7) passes on the PR.
+1. **CI is green** — the `CI` check (tests + secret scan, see §8) passes on the PR.
 2. **Adversarial-review record** — the PR was run through an adversarial pass and
    its findings are either fixed (with a commit) or consciously waived. Every v1
    feature has this; the record lives in the PR conversation / commit trail.
@@ -63,9 +63,67 @@ pytest tests/test_offline.py -q       # the §7 offline acceptance criterion alo
 ```
 
 The suite is **~123 tests** and runs in a couple of seconds. It needs **no
-network** and **no running server** (see §4).
+network** and **no running server** (see §5).
 
-## 3. What's covered
+## 3. Run the API locally (manual/exploratory testing)
+
+The pytest suite is fully mocked and needs no running server (§2). To exercise
+the real, running service — the closest thing to what a deployed host will
+actually do — start it and hit it directly.
+
+```bash
+source .venv/bin/activate
+uvicorn app.main:app --no-access-log
+```
+
+`--no-access-log` is not optional here either (§9, PII) — carry it into manual
+testing the same as into deployment. The server listens on `127.0.0.1:8000` by
+default.
+
+**Interactive docs** — `/docs` (Swagger UI) and `/openapi.json` (the raw
+contract) are the fastest way to poke at the API by hand.
+
+**Static test UI** — mounted at the root (`/`), so `http://127.0.0.1:8000/`
+opens the zero-dependency coordinate/address lookup page (`app/main.py`, F6).
+
+**curl smoke test** — the four §4 endpoints, in the order a real query flows:
+
+```bash
+curl -s http://127.0.0.1:8000/health
+curl -s http://127.0.0.1:8000/layers
+
+# geocode only
+curl -s "http://127.0.0.1:8000/geocode?address=121+N+La+Salle+St,+Chicago,+IL"
+
+# geocode + locate (the headline endpoint)
+curl -s "http://127.0.0.1:8000/locate?address=121+N+La+Salle+St,+Chicago,+IL&layer=police_districts"
+
+# pure point-in-polygon, no geocoding
+curl -s -X POST http://127.0.0.1:8000/locate \
+  -H "Content-Type: application/json" \
+  -d '{"lat": 41.8838, "lon": -87.6319, "layer": "police_districts"}'
+```
+
+A known Chicago address should come back `"matched": true` with a real
+`police_districts` feature (SPEC §7's end-to-end success criterion — the
+pytest suite mocks the geocoder, so this manual round-trip through the *live*
+default provider is the only check that exercises it for real). A point
+outside Chicago but inside Cook County should return
+`"match": {"found": false, "reason": "point_outside_all_polygons"}`, not a 500.
+
+**Needs the real data.** `GET /layers`, `/locate`, and a matched `/geocode`
+all need `data/layers.gpkg` present — same caveat as edge case A in §7. If
+you're on a data-stripped checkout, `python scripts/build_data.py` first.
+
+**Needs network** (default config). The default provider chain
+(`cook_county_arcgis → census`) calls out to live public geocoders — unlike
+the mocked test suite, this manual check is a real network dependency. To
+smoke-test the offline path instead, follow `docs/deployment.md` §2 to switch
+the default provider to `local_points` before running the curl block above.
+
+Stop the server with `Ctrl-C` when done.
+
+## 4. What's covered
 
 | Test file | Feature | Focus |
 |---|---|---|
@@ -79,7 +137,7 @@ network** and **no running server** (see §4).
 | `test_chain.py` | F5 | `GeocoderChain` D7 fall-through semantics |
 | `test_offline.py` | F5 | §7 air-gapped: geocode→locate with the network severed |
 
-## 4. What a green run guarantees (the invariants)
+## 5. What a green run guarantees (the invariants)
 
 - **Offline** — every upstream HTTP call is `respx`-mocked; the suite passes with
   no internet. `test_offline.py` goes further and severs sockets to prove the
@@ -90,7 +148,7 @@ network** and **no running server** (see §4).
 - **Contract ≡ spec** — `test_api.py` asserts `/openapi.json`'s path+method set
   equals SPEC §4 exactly (see edge case D).
 
-## 5. Before you trust a green run
+## 6. Before you trust a green run
 
 - **Build the real data.** The shipped `data/layers.gpkg` is committed, so
   real-data tests run out of the box. If you work from a data-stripped checkout,
@@ -98,14 +156,14 @@ network** and **no running server** (see §4).
   ```bash
   python scripts/build_data.py          # writes data/layers.gpkg
   ```
-- **Run the secret scanner** — it's part of "passing" in CI (§7):
+- **Run the secret scanner** — it's part of "passing" in CI (§8):
   ```bash
   python scripts/check_no_secrets.py
   ```
 
 ---
 
-## 6. Confusing-but-likely edge cases
+## 7. Confusing-but-likely edge cases
 
 These are the real footguns — every one has bitten during development.
 
@@ -177,7 +235,7 @@ locally before you push.
 
 ---
 
-## 7. CI
+## 8. CI
 
 `.github/workflows/ci.yml` runs on every PR to `main` and every push to `main`:
 
