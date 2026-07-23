@@ -54,6 +54,24 @@ Install step: `pip install .` (the platform runs this from `pyproject.toml`).
 Note that a PaaS almost always terminates TLS at its own edge proxy — see the
 reverse-proxy warning above; check whether that platform logs request URLs.
 
+**Render, specifically (the v1.0.0 deploy target).** The repo ships a
+`render.yaml` blueprint — connect the repo once in the Render dashboard
+(New → Blueprint) and it builds straight from the `Dockerfile` (this is the
+Docker path, not the `$PORT`/bare-uvicorn path above; the Dockerfile's `CMD`
+hardcodes `--port 8000` and `EXPOSE 8000` matches it, so **do not** add a
+`PORT` env var — Render auto-detects the bound port, and setting `PORT`
+explicitly breaks that detection). `healthCheckPath: /health` matches the
+Dockerfile's own `HEALTHCHECK`.
+
+Verified (2026-07-23) against the reverse-proxy access-log warning above:
+Render only generates HTTP request logs — which include the requested URL,
+i.e. the `?address=` query string — **on a Pro workspace or higher**. The
+`free` plan this blueprint uses has no HTTP request/access logging at all, so
+there is no edge-log PII exposure today. If this service is ever upgraded to
+a Pro workspace, that changes — treat "upgrade to Pro" as a decision that
+needs its own PII review (log retention settings, log-stream scrubbing, or a
+proxy in front that strips the query string) before flipping the plan.
+
 ### (b) ~$5/month VPS
 
 A single small VPS (any provider) comfortably runs this. Two ways to run it:
