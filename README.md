@@ -11,8 +11,9 @@ infrastructure (FastAPI + GeoPandas, AGPLv3, no Esri software, no mandatory API
 keys), so nonprofits, mutual-aid groups, and small government offices can
 self-host it for near-$0.
 
-**Status:** pre-build. The spec is ratified (Gate 0 cleared 2026-07-06); the
-implementation plan is drafted and awaiting ratification. No feature code yet.
+**Status:** v1.0.0 shipped (2026-07-17) and deployed. Live instance:
+**https://point-in-polygon-service.onrender.com** — try the test UI at `/`, or
+`/docs` for the interactive API.
 
 ## Documents
 
@@ -22,6 +23,7 @@ implementation plan is drafted and awaiting ratification. No feature code yet.
 | `docs/plans/v1.0-archive/PLAN.md` | The v1 implementation plan — features, tasks, gates, hooks. Archived at v1.0.0; new work gets a fresh plan under `docs/plans/`. |
 | `docs/testing.md` | Testing runbook — the PR-review gate, running the suite, and the confusing edge cases. |
 | `docs/deployment.md` | Deployment guide — shoestring hosts, air-gapped install, the reverse-proxy access-log warning. |
+| `render.yaml` | The Render blueprint for the live instance above (Docker build, free plan). |
 | `docs/conventions.md` | ID grammar, branch/commit/PR conventions. |
 | `CHANGELOG.md` | Release history (starts at v1.0.0). |
 | `CLAUDE.md` | Standing rules the coding agent works under. |
@@ -65,13 +67,15 @@ the service also serves a static test page at `/` and the generated contract at
 
 ## Deployment
 
-Hosting options (free-tier PaaS, a ~$5/mo VPS via Docker or systemd, an on-prem
-Windows box) and the fully-offline / air-gapped install path (build a pip
-wheelhouse, carry it over, `pip install --no-index`) are documented in
-[`docs/deployment.md`](docs/deployment.md). It also carries the reverse-proxy
-access-log warning: `--no-access-log` silences the service's own log, but an
-nginx/Apache/ALB you put in front keeps its own log that will capture queried
-addresses from the GET query string unless you disable or scrub it.
+The live instance above runs on Render's free plan, built from `render.yaml` /
+the repo's `Dockerfile`. Other hosting options (a ~$5/mo VPS via Docker or
+systemd, an on-prem Windows box) and the fully-offline / air-gapped install
+path (build a pip wheelhouse, carry it over, `pip install --no-index`) are
+documented in [`docs/deployment.md`](docs/deployment.md). It also carries the
+reverse-proxy access-log warning: `--no-access-log` silences the service's own
+log, but an nginx/Apache/ALB you put in front keeps its own log that will
+capture queried addresses from the GET query string unless you disable or
+scrub it.
 
 ## License
 

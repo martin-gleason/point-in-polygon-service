@@ -1,0 +1,22 @@
+# Render Blueprint — Point-in-Polygon Service.
+#
+# Deploys the same image verified locally (docs/testing.md §3, docs/deployment.md
+# §1a): Docker build from the repo's own Dockerfile, free plan. Checked in so the
+# service definition is reproducible and reviewable, not clicked through the
+# dashboard by hand.
+#
+# Do NOT add a PORT env var here — the Dockerfile's CMD hardcodes
+# `--port 8000` and `EXPOSE 8000` matches it; Render auto-detects that bound
+# port. Setting PORT explicitly breaks the auto-detection.
+#
+# First-time setup: connect this repo in the Render dashboard (New -> Blueprint),
+# which reads this file. After that, `render deploys create` / a git push to the
+# connected branch triggers redeploys.
+services:
+  - type: web
+    name: point-in-polygon-service
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    autoDeployTrigger: commit
