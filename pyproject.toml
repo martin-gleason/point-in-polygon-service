@@ -17,13 +17,21 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# XLSX support for batch runs (F7). Kept optional so the base install stays as
+# lean as it is today: CSV and published Google Sheets need nothing beyond the
+# core dependencies, and a locked-down box that cannot pip-install extras can
+# still run batches from CSV.
+batch = [
+    "openpyxl>=3.1",
+]
 dev = [
     "pytest>=8",
     "respx>=0.21",
+    "openpyxl>=3.1",
 ]
 
 [tool.setuptools]
-packages = ["app", "app.geocoding"]
+packages = ["app", "app.geocoding", "app.batch"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
