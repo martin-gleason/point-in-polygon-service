@@ -19,14 +19,19 @@ self-host it for near-$0.
 
 | Document | What it is |
 |---|---|
-| `docs/specs/SPEC.md` | The ratified contract — purpose, API, non-negotiables. Frozen. |
-| `docs/plans/v1.0-archive/PLAN.md` | The v1 implementation plan — features, tasks, gates, hooks. Archived at v1.0.0; new work gets a fresh plan under `docs/plans/`. |
-| `docs/testing.md` | Testing runbook — the PR-review gate, running the suite, and the confusing edge cases. |
-| `docs/deployment.md` | Deployment guide — shoestring hosts, air-gapped install, the reverse-proxy access-log warning. |
-| `render.yaml` | The Render blueprint for the live instance above (Docker build, free plan). |
-| `docs/conventions.md` | ID grammar, branch/commit/PR conventions. |
-| `CHANGELOG.md` | Release history (starts at v1.0.0). |
-| `CLAUDE.md` | Standing rules the coding agent works under. |
+| [`README.md`](README.md) | This file — what the service is, how to stand it up. |
+| [`CHANGELOG.md`](CHANGELOG.md) | Release history (starts at v1.0.0). |
+| [`render.yaml`](render.yaml) | The Render blueprint for the live instance above (Docker build, free plan). |
+| [`LICENSE`](LICENSE) | AGPLv3. |
+
+The project's spec, plans, runbooks (testing, deployment, adding a polygon
+layer), and data provenance are maintained **outside this repository** and are
+not published here. If you are running this service and need them, ask the
+maintainer.
+
+The API documents itself: `/docs` on a running instance is the interactive
+Swagger UI, and `/openapi.json` is the generated contract — neither is
+hand-maintained, so neither can drift from the code.
 
 ## Project layout
 
@@ -37,7 +42,6 @@ data/               # Shipped GeoPackages + layer config (F1)
 static/             # Minimal decoupled frontend (F6)
 scripts/            # Data pipeline, one-off tools
 tests/              # pytest suite
-docs/               # specs/ (frozen), plans/ (working), provenance
 ```
 
 ## Scaffolding (for maintainers coming from ArcGIS or QGIS)
@@ -71,11 +75,16 @@ The live instance above runs on Render's free plan, built from `render.yaml` /
 the repo's `Dockerfile`. Other hosting options (a ~$5/mo VPS via Docker or
 systemd, an on-prem Windows box) and the fully-offline / air-gapped install
 path (build a pip wheelhouse, carry it over, `pip install --no-index`) are
-documented in [`docs/deployment.md`](docs/deployment.md). It also carries the
-reverse-proxy access-log warning: `--no-access-log` silences the service's own
-log, but an nginx/Apache/ALB you put in front keeps its own log that will
-capture queried addresses from the GET query string unless you disable or
-scrub it.
+covered in the maintainer's deployment runbook.
+
+**Reverse-proxy access logs — read this before putting anything in front of the
+service.** `--no-access-log` silences the service's *own* log, but an
+nginx/Apache/cloud-ALB you put in front keeps its own, and `/geocode` and
+`/locate` take the address as a **GET query-string parameter**. Unless you
+disable or scrub that proxy log, it will record every queried address,
+re-introducing exactly the PII leak this service is built to avoid. That is the
+operator's responsibility — the app cannot reach into a proxy it does not
+control.
 
 ## License
 
