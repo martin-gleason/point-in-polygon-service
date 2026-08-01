@@ -102,7 +102,8 @@ SOURCES = [
         "?method=export&format=GeoJSON",
         # Source carries dist_num ("17") and dist_label ("17TH"); there is no
         # separate long name in the open dataset, so dist_name derives from the
-        # portal's dist_label. Recorded in docs/data-provenance.md.
+        # portal's dist_label. Recorded in the maintainer's data-provenance
+        # record (kept outside this repo).
         field_map={"dist_num": "dist_num", "dist_label": "dist_name"},
         source="City of Chicago Data Portal, dataset 24zt-jpfn "
         "(Boundaries - Police Districts, current). Public domain.",
@@ -171,9 +172,10 @@ class AddressPointSource:
 # NOTE: the exact service path and source field names below are pinned from the
 # county's published Address Point layer; if the portal reorganizes the service
 # or renames a field, normalize_address_points() fails loudly with the missing
-# field list (same discipline as normalize()), and this definition +
-# docs/data-provenance.md are updated together. This mode is opt-in and is never
-# exercised in CI, so the pin is validated at the first real local build.
+# field list (same discipline as normalize()), and this definition + the
+# maintainer's data-provenance record are updated together. This mode is opt-in
+# and is never exercised in CI, so the pin is validated at the first real local
+# build.
 ADDRESS_POINTS = AddressPointSource(
     layer_id="address_points",
     name="Cook County Address Points",
@@ -231,7 +233,7 @@ def normalize(source, raw_path):
         raise ValueError(
             f"{source.layer_id}: source is missing expected fields {missing}; "
             f"got {list(frame.columns)}. The portal schema may have changed — "
-            f"update field_map and docs/data-provenance.md."
+            f"update field_map and the data-provenance record."
         )
 
     if frame.crs is None:
@@ -316,7 +318,7 @@ def normalize_address_points(source, raw_path):
         raise ValueError(
             f"{source.layer_id}: source is missing expected fields {missing}; "
             f"got {list(frame.columns)}. The portal schema may have changed — "
-            f"update field_map and docs/data-provenance.md."
+            f"update field_map and the data-provenance record."
         )
 
     if frame.crs is None:
@@ -380,7 +382,7 @@ def build_address_points(refresh=False):
     )
     print(
         "\nThis file is local-only (gitignored). Record the retrieval date and "
-        "count in docs/data-provenance.md."
+        "count in the data-provenance record."
     )
     return frame
 
@@ -409,7 +411,7 @@ def build(refresh=False):
     for layer_id, count, attrs, crs in report:
         print(f"  {layer_id:20} {count:>4} features  {crs}  {attrs}")
     print(
-        "\nRecord these counts and retrieval date in docs/data-provenance.md "
+        "\nRecord these counts and retrieval date in the data-provenance record "
         "(F1-T3)."
     )
     return report

@@ -8,8 +8,8 @@ geometry is valid, and the data is non-empty and in a sane size range.
 
 Feature counts are asserted as floors, not exact values: the open-data portals
 update (a district re-drawn, a village annexes a parcel), and a brittle exact
-count would fail a legitimate refresh. Provenance records the exact counts at
-last build (docs/data-provenance.md).
+count would fail a legitimate refresh. The maintainer's data-provenance record
+holds the exact counts at last build.
 """
 from pathlib import Path
 

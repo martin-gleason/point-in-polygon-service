@@ -1,7 +1,7 @@
 """F3-T4 — tests for ArcGISRestGeocoder, all HTTP mocked with respx.
 
 The mocked responses are shaped from the live Cook County GeocodeServer capture
-recorded in docs/data-provenance.md (F3-T1), so the suite proves the adapter
+in the maintainer's data-provenance record (F3-T1), so the suite proves the adapter
 against the real contract while never touching the network — it passes offline.
 """
 import httpx
