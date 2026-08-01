@@ -20,3 +20,7 @@ data/raw/
 .DS_Store
 .idea/
 .vscode/
+
+# Project docs and agent instructions — kept local, not published in the repo
+CLAUDE.md
+docs/
