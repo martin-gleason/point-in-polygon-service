@@ -44,30 +44,27 @@ scripts/            # Data pipeline, one-off tools
 tests/              # pytest suite
 ```
 
-## Scaffolding (for maintainers coming from ArcGIS or QGIS)
+## Install (for maintainers coming from ArcGIS or QGIS)
 
-You do not need any GIS software to stand this project up — only Python 3.11+
-(on Windows, macOS, or Linux). From the directory where you keep your projects:
-
-```
-python point-in-polygon-service/bootstrap.py
-```
-
-`bootstrap.py` is idempotent and non-clobbering: re-running it only fills in
-whatever is missing and never overwrites existing work. It uses only the Python
-standard library — no `pip install`, no shell, no internet required.
-
-Once feature work ships, the runtime install will be:
+You do not need any GIS software to run this — only Python 3.11+, on Windows,
+macOS, or Linux:
 
 ```
 pip install -e .
 uvicorn app.main:app --no-access-log
 ```
 
-…on a machine with no Esri software and no API keys (spec §7). The
-`--no-access-log` flag keeps request parameters out of any log (no-PII, spec §9);
-the service also serves a static test page at `/` and the generated contract at
-`/openapi.json`.
+…on a machine with no Esri software and no API keys. The `--no-access-log` flag
+is **not optional**: it keeps queried addresses out of the service's own log.
+The running service serves a static test page at `/`, the interactive API at
+`/docs`, and the generated contract at `/openapi.json`.
+
+To rebuild the shipped polygon data from its open-data sources (the repo ships
+`data/layers.gpkg`, so this is only needed for a refresh):
+
+```
+python scripts/build_data.py
+```
 
 ## Deployment
 

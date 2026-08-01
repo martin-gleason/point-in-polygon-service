@@ -21,6 +21,10 @@ data/raw/
 .idea/
 .vscode/
 
-# Project docs and agent instructions — kept local, not published in the repo
+# Project docs and agent instructions — kept local, not published in the repo.
+# bootstrap.py embeds CLAUDE.md, the SPEC, and conventions.md verbatim as
+# string literals, so it belongs with them rather than in the public tree.
 CLAUDE.md
 docs/
+.claude/
+bootstrap.py
