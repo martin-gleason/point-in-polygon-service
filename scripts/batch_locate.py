@@ -2,15 +2,22 @@
 """F7-T4 — batch point-in-polygon from the command line.
 
 A thin argparse shell over `app.batch`: read a source (CSV, XLSX, or a
-link-shared Google Sheet), locate every row, and write one output file that
+link-shared Google Sheet), locate every row, and write one output CSV that
 reproduces the operator's original columns and appends the `pip_*` result
 columns.
 
     python scripts/batch_locate.py caseload.csv --out located.csv \\
         --layer police_districts --address-column "Address"
 
-    python scripts/batch_locate.py points.xlsx --out located.xlsx \\
+    python scripts/batch_locate.py points.xlsx --out located.csv \\
         --layer police_districts --lat-column lat --lon-column lon
+
+**Input may be an .xlsx; output is always a .csv.** Writing an Excel file means
+copying every row through a temporary working file that a power loss or a killed
+process can leave behind, and SPEC §9 forbids persisting a queried address
+anywhere. An `--out` ending in `.xlsx` is therefore refused — and refused in the
+first second, before the source is opened, so nobody discovers it at the end of
+a half-hour run. Reading an `.xlsx` source has no such exposure and is untouched.
 
 The lat/lon form never constructs a geocoder, never consults the rate limiter,
 and sends nothing anywhere: it runs with the network physically severed.
@@ -36,8 +43,9 @@ ArcGIS / ArcPy equivalent
     `arcpy.geocoding.geocodeAddresses` (address table + locator → point feature
     class) — or `arcpy.management.XYTableToPoint` when the table already carries
     coordinates — followed by `arcpy.analysis.SpatialJoin` against the boundary
-    layer and `arcpy.conversion.TableToExcel` / `TableToTable` to export the
-    result. Where the Esri chain materializes two intermediate feature classes in
+    layer and `arcpy.conversion.TableToTable` to export the result (Esri's
+    `TableToExcel` has no counterpart here — see the note on output format
+    above). Where the Esri chain materializes two intermediate feature classes in
     a scratch geodatabase and fails the whole tool on a bad record, this streams
     rows through memory, writes exactly one file, and turns a bad record into one
     flagged output row.
@@ -68,7 +76,11 @@ from app.batch.sources import (  # noqa: E402
     read_source,
     validate_column_mapping,
 )
-from app.batch.writer import write_results  # noqa: E402
+from app.batch.writer import (  # noqa: E402
+    XLSX_OUTPUT_REFUSED,
+    XLSX_SUFFIX,
+    write_results,
+)
 from app.config import ConfigError, load_config  # noqa: E402
 from app.geocoding.registry import build_geocoders  # noqa: E402
 from app.lookup import PolygonLookup  # noqa: E402
@@ -122,8 +134,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--out",
         required=True,
-        help="output file to write (.csv or .xlsx). Prefer .csv for a long run: "
-        "a killed CSV run leaves a valid partial file, a killed .xlsx does not",
+        help="output file to write. Must be a .csv — this tool does not write "
+        ".xlsx (Excel opens .csv files normally). A killed run leaves a valid "
+        "partial .csv",
     )
     parser.add_argument(
         "--layer",
@@ -194,6 +207,36 @@ def build_column_mapping(args: argparse.Namespace) -> ColumnMapping:
     """
     return ColumnMapping(
         address=args.address_column, lat=args.lat_column, lon=args.lon_column
+    )
+
+
+def refuse_xlsx_output(out_spec: str) -> None:
+    """Refuse an `.xlsx` destination, in plain English, before anything happens.
+
+    The writer refuses it too (`app.batch.writer.resolve_format` is the authority
+    and holds the wording), but the writer is not reached until the source has
+    been read and every row geocoded. Someone who types `--out results.xlsx`
+    would learn about it half an hour later, after a run whose result is then
+    thrown away. Checking the name here — it is a string check, needing no file,
+    no config and no network — turns that into a first-second answer.
+    """
+    if Path(out_spec).suffix.lower() == XLSX_SUFFIX:
+        raise BatchError(XLSX_OUTPUT_REFUSED)
+
+
+def print_keep_it_private_note(out_spec: str) -> None:
+    """One closing line about what the operator now has on disk.
+
+    The output file holds the addresses that were looked up — that is what it is
+    for — and someone who does not think about file permissions should still be
+    told, once, in words rather than jargon. Not repeated, not a warning, and it
+    names the file only, never a row's contents (SPEC §9).
+    """
+    print(
+        f"NOTE: {out_spec} contains the addresses you looked up. It is created "
+        f"so that only your user account can read it — keep it somewhere "
+        f"private, and delete it when you no longer need it.",
+        file=sys.stderr,
     )
 
 
@@ -460,6 +503,11 @@ def main(argv=None) -> int:
         print(f"WARNING: {message}", file=sys.stderr)
 
     try:
+        # First, before the config is loaded and long before the source is read
+        # or a single address leaves the machine: the one refusal that costs
+        # nothing to check must not wait behind the ones that do.
+        refuse_xlsx_output(args.out)
+
         mapping = build_column_mapping(args)
         app_config = load_config(Path(args.config) if args.config else None)
 
@@ -508,27 +556,6 @@ def main(argv=None) -> int:
                     file=sys.stderr,
                 )
             print(describe_eta(args.max_rows, args.rate_limit), file=sys.stderr)
-
-        if Path(args.out).suffix.lower() == ".xlsx":
-            # The staging caveat is a property of the OUTPUT FORMAT, not of the
-            # column mapping: openpyxl's write-only workbook spills every row it
-            # is handed — passthrough columns included — into $TMPDIR/openpyxl.*
-            # before the workbook is assembled. A lat/lon run carries the
-            # operator's other columns through untouched, and one of them may
-            # well be the address column they simply did not map, so the
-            # air-gapped lat/lon operator needs this warning exactly as much as
-            # a geocoding one.
-            print(
-                "NOTE: an interrupted .xlsx run cannot be resumed from its "
-                "output, and while the workbook is being built openpyxl stages "
-                "every row — including the columns passed straight through from "
-                "the source — in a $TMPDIR temp file. openpyxl removes that file "
-                "when the workbook is saved, and again via an atexit hook if the "
-                "run raises, but a SIGKILL or a power loss leaves it on disk. "
-                "Write a .csv for a very long run, or for any run over real "
-                "addresses.",
-                file=sys.stderr,
-            )
 
         counts: Counter = Counter()
 
@@ -604,6 +631,7 @@ def main(argv=None) -> int:
         source_name=source.name,
         multiline_records=source_tally[MULTILINE_RECORDS_KEY],
     )
+    print_keep_it_private_note(args.out)
     unmatched = sum(counts.values()) - counts.get(STATUS_MATCHED, 0)
     if unmatched:
         print(

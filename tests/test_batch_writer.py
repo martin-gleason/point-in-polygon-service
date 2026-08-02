@@ -6,6 +6,8 @@ protect people rather than data shape — the formula-injection test (plan D21)
 and the partial-write test (plan R15).
 """
 import csv
+import os
+import stat
 
 import pytest
 
@@ -51,14 +53,16 @@ def _read_csv(path) -> tuple[list[str], list[list[str]]]:
     return rows[0], rows[1:]
 
 
-def _read_xlsx(path) -> list[list]:
-    from openpyxl import load_workbook
+# Words that would land in front of someone who does not work in IT and tell
+# them nothing. A refusal they cannot act on is a refusal that gets worked
+# around, so the wording is pinned by test, not by good intentions.
+JARGON = ("SIGKILL", "atexit", "staging", "stage", "$TMPDIR", "openpyxl", "TMPDIR")
 
-    workbook = load_workbook(path, read_only=True)
-    try:
-        return [list(row) for row in workbook.active.iter_rows(values_only=True)]
-    finally:
-        workbook.close()
+
+def assert_no_jargon(message: str) -> None:
+    lowered = message.lower()
+    for word in JARGON:
+        assert word.lower() not in lowered, f"jargon {word!r} in: {message}"
 
 
 # ---- format resolution ----
@@ -66,12 +70,45 @@ def _read_xlsx(path) -> list[list]:
 def test_format_inferred_from_suffix(tmp_path):
     assert resolve_format(tmp_path / "out.csv") == "csv"
     assert resolve_format(tmp_path / "OUT.CSV") == "csv"
-    assert resolve_format(tmp_path / "out.xlsx") == "xlsx"
 
 
-def test_explicit_format_overrides_suffix(tmp_path):
-    assert resolve_format(tmp_path / "out.xlsx", "csv") == "csv"
+def test_explicit_format_names_csv(tmp_path):
     assert resolve_format(tmp_path / "out.dat", ".CSV") == "csv"
+
+
+def test_xlsx_destination_is_refused_in_plain_english(tmp_path):
+    # Output is CSV only: building an Excel file copies every row — addresses
+    # included — through a temporary working file that a power loss can leave on
+    # disk, and SPEC §9 forbids that. The refusal has to be readable by someone
+    # who has never heard of a temp file.
+    with pytest.raises(BatchError) as raised:
+        resolve_format(tmp_path / "results.xlsx")
+
+    message = str(raised.value)
+    assert "this tool writes .csv only" in message
+    # It says what to type instead.
+    assert "--out <name>.csv" in message
+    assert_no_jargon(message)
+
+
+def test_xlsx_is_refused_as_an_explicit_format_too(tmp_path):
+    with pytest.raises(BatchError, match="writes .csv only"):
+        resolve_format(tmp_path / "out.dat", "xlsx")
+
+
+def test_xlsx_destination_is_refused_even_when_csv_format_is_forced(tmp_path):
+    # The refusal is on the destination NAME, not just the requested format:
+    # CSV bytes behind a .xlsx name is the same trap wearing a different coat.
+    with pytest.raises(BatchError, match="this tool writes .csv only"):
+        resolve_format(tmp_path / "out.xlsx", "csv")
+
+
+def test_write_results_refuses_an_xlsx_path_and_creates_nothing(tmp_path):
+    target = tmp_path / "out.xlsx"
+    with pytest.raises(BatchError, match="this tool writes .csv only"):
+        write_results([_matched()], path=target, headers=HEADERS)
+    assert not target.exists()
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_unknown_suffix_raises_batch_error(tmp_path):
@@ -309,27 +346,6 @@ def test_csv_escapes_a_malicious_header_name(tmp_path):
     assert len(rows[0]) == len(header)
 
 
-def test_xlsx_malicious_header_is_not_a_live_formula_cell(tmp_path):
-    from openpyxl import load_workbook
-
-    target = tmp_path / "evil-header.xlsx"
-    write_results(
-        [_matched(address="1 Main St")],
-        path=target,
-        headers=(INJECTION, "score", "case_id"),
-    )
-
-    workbook = load_workbook(target)
-    try:
-        cell = workbook.active["A1"]
-        # 'f' means openpyxl committed a <f> element to sheet1.xml: Excel will
-        # evaluate it on open, with no CSV-import warning to stop it.
-        assert cell.data_type != "f"
-        assert cell.value == "'" + INJECTION
-    finally:
-        workbook.close()
-
-
 # ---- re-running over prior output (pip_ column collision) ----
 
 def test_source_that_already_has_pip_columns_is_refused(tmp_path):
@@ -354,11 +370,25 @@ def test_source_that_already_has_pip_columns_is_refused(tmp_path):
 
 
 def test_xlsx_source_that_already_has_pip_columns_is_refused(tmp_path):
-    target = tmp_path / "second-pass.xlsx"
+    # Still a real scenario now that output is CSV only: the operator's *source*
+    # is a workbook they made by opening a previous run's CSV in Excel and saving
+    # it as .xlsx, so it carries pip_ columns. The headers come from the real
+    # .xlsx reader, which is what makes this more than a tuple literal.
+    openpyxl = pytest.importorskip("openpyxl")
+    from app.batch.sources import read_source
+
+    workbook = openpyxl.Workbook()
+    workbook.active.append(["address", "pip_status"])
+    workbook.active.append(["1 Main St", "matched"])
+    source_path = tmp_path / "already-located.xlsx"
+    workbook.save(source_path)
+    workbook.close()
+
+    source = read_source(str(source_path))
+    target = tmp_path / "second-pass.csv"
+
     with pytest.raises(BatchError, match="duplicate column name"):
-        write_results(
-            [_matched()], path=target, headers=("address", "pip_status")
-        )
+        write_results([_matched()], path=target, headers=source.headers)
     assert not target.exists()
 
 
@@ -443,101 +473,6 @@ def test_rows_are_on_disk_before_the_iterator_finishes(tmp_path):
     assert "second" not in seen_midway[0]
 
 
-# ---- XLSX ----
-
-def test_xlsx_round_trip(tmp_path):
-    target = tmp_path / "out.xlsx"
-    count = write_results(
-        [_matched(), _matched(address="233 S Wacker Dr")],
-        path=target,
-        headers=HEADERS,
-        layer_attributes=ATTRIBUTES,
-    )
-    assert count == 2
-
-    rows = _read_xlsx(target)
-    assert tuple(rows[0]) == HEADERS + result_columns(ATTRIBUTES)
-    assert rows[1][:3] == ["121 N La Salle St", "manual-7", "C-001"]
-    assert rows[2][0] == "233 S Wacker Dr"
-    header = list(rows[0])
-    assert rows[1][header.index("pip_dist_num")] == "17"
-    assert rows[1][header.index("pip_status")] == STATUS_MATCHED
-    # Written as text (plan R14) so leading zeros survive the round trip.
-    # openpyxl reads an empty cell back as None; every populated one is a str.
-    assert all(cell is None or isinstance(cell, str) for cell in rows[1])
-    assert rows[1][header.index("pip_score")] == "100.0"
-
-
-def test_xlsx_preserves_leading_zeros(tmp_path):
-    target = tmp_path / "zips.xlsx"
-    write_results(
-        [
-            RowResult(
-                row={"address": "1 Main St", "score": "007", "case_id": "0060602"},
-                status=STATUS_MATCHED,
-            )
-        ],
-        path=target,
-        headers=HEADERS,
-    )
-    rows = _read_xlsx(target)
-    assert rows[1][1] == "007"
-    assert rows[1][2] == "0060602"
-
-
-def test_xlsx_escapes_formula_injection(tmp_path):
-    target = tmp_path / "injection.xlsx"
-    write_results(
-        [
-            RowResult(
-                row={"address": INJECTION, "score": "", "case_id": ""},
-                status=STATUS_MATCHED,
-                matched_address=INJECTION,
-            )
-        ],
-        path=target,
-        headers=HEADERS,
-    )
-    rows = _read_xlsx(target)
-    header = list(rows[0])
-    assert rows[1][header.index("address")] == "'" + INJECTION
-    assert rows[1][header.index("pip_matched_address")] == "'" + INJECTION
-
-
-def test_xlsx_iterator_failure_still_saves_consumed_rows(tmp_path):
-    # An XLSX cannot be left half-written the way a CSV can (the zip container is
-    # finalized on save), so the writer saves what it consumed before re-raising.
-    target = tmp_path / "partial.xlsx"
-
-    def failing_results():
-        yield _matched(address="first")
-        raise RuntimeError("provider died mid-run")
-
-    with pytest.raises(RuntimeError, match="provider died mid-run"):
-        write_results(failing_results(), path=target, headers=HEADERS)
-
-    rows = _read_xlsx(target)
-    assert len(rows) == 2
-    assert rows[1][0] == "first"
-
-
-def test_missing_openpyxl_raises_batch_error_with_install_hint(tmp_path, monkeypatch):
-    # Simulate the locked-down box that could not install the [batch] extra: the
-    # failure must name the fix, not surface a bare ImportError.
-    import builtins
-
-    real_import = builtins.__import__
-
-    def blocked_import(name, *args, **kwargs):
-        if name == "openpyxl":
-            raise ImportError("No module named 'openpyxl'")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", blocked_import)
-    with pytest.raises(BatchError, match=r"optional 'batch' extra"):
-        write_results([_matched()], path=tmp_path / "out.xlsx", headers=HEADERS)
-
-
 def test_unwritable_destination_raises_batch_error_not_oserror(tmp_path):
     # A missing parent directory is an operator typo, not a bug. The module's
     # caller contract is BatchError (the CLI catches it and exits 2 without a
@@ -554,46 +489,37 @@ def test_unwritable_destination_raises_batch_error_not_oserror(tmp_path):
     assert not target.parent.exists()
 
 
-def test_unwritable_xlsx_destination_fails_before_any_row_is_consumed(tmp_path):
-    target = tmp_path / "no-such-dir" / "out.xlsx"
-    consumed = []
+# ---- the output file's permissions ----
 
-    def counting_results():
-        for result in [_matched()]:
-            consumed.append(result)
-            yield result
+@pytest.mark.skipif(
+    os.name == "nt", reason="POSIX permission bits are not enforced on Windows"
+)
+def test_output_file_is_readable_only_by_its_owner(tmp_path):
+    # The output holds the operator's addresses by construction. On a shared
+    # machine the usual umask would leave it world-readable, and someone who is
+    # not an IT person would never think to check.
+    target = tmp_path / "private.csv"
+    write_results([_matched()], path=target, headers=HEADERS)
 
-    with pytest.raises(BatchError) as raised:
-        write_results(counting_results(), path=target, headers=HEADERS)
-
-    assert "could not open" in str(raised.value)
-    assert not target.parent.exists()
-    # openpyxl only touches the path at save(), i.e. at the very end. Without the
-    # up-front claim on the destination, a half-hour run would do all its work
-    # and then throw every row away.
-    assert consumed == []
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
 
 
-def test_an_xlsx_run_leaves_no_openpyxl_temp_file_behind(tmp_path):
-    # openpyxl stages worksheet XML — the operator's rows, addresses included —
-    # in $TMPDIR/openpyxl.* while it builds the workbook, and removes it on
-    # save(). SPEC §9 forbids persisting queried addresses, so this pins the
-    # cleanup we depend on: nothing may survive a completed run.
-    import glob
-    import os
-    import tempfile
+@pytest.mark.skipif(
+    os.name == "nt", reason="POSIX permission bits are not enforced on Windows"
+)
+def test_an_existing_destination_is_overwritten_without_crashing(tmp_path):
+    # Re-running over yesterday's output is ordinary. O_CREAT does not re-apply
+    # the mode to a file that already exists, which is fine — it is the
+    # operator's own file — but it must not fail, and it must be truncated.
+    target = tmp_path / "yesterday.csv"
+    target.write_text("stale contents that must not survive\n" * 50)
+    target.chmod(0o644)
 
-    pattern = os.path.join(tempfile.gettempdir(), "openpyxl.*")
-    before = set(glob.glob(pattern))
+    assert write_results([_matched()], path=target, headers=HEADERS) == 1
 
-    write_results(
-        [_matched()],
-        path=tmp_path / "out.xlsx",
-        headers=HEADERS,
-        layer_attributes=ATTRIBUTES,
-    )
-
-    assert set(glob.glob(pattern)) - before == set()
+    header, rows = _read_csv(target)
+    assert "stale contents" not in target.read_text(encoding="utf-8-sig")
+    assert len(rows) == 1
 
 
 def test_a_csv_run_writes_exactly_one_file(tmp_path):

@@ -1,4 +1,15 @@
-"""F7-T3 — batch results out: write a CSV or XLSX the operator can open.
+"""F7-T3 — batch results out: write the CSV the operator can open.
+
+**Output is CSV, and only CSV.** Writing an `.xlsx` meant handing every row to
+openpyxl, which copies them — addresses included — into a temporary working file
+under `$TMPDIR` while it assembles the workbook. openpyxl deletes that copy when
+the workbook is saved, and again through an `atexit` hook if the run raises, but
+neither cleanup runs if the process is killed outright or the machine loses
+power, and the copy is then left on disk. SPEC §9 makes "no persistence of
+queried addresses or PII" non-negotiable, so the write path is gone rather than
+hedged: the only artifact of a run is the one CSV the operator named. Reading an
+`.xlsx` **source** has no such exposure and stays fully supported
+(`app.batch.sources`) — this restriction is about writing only.
 
 `write_results` consumes the iterator of `RowResult`s the runner yields and
 writes one output file. Two rules govern the shape of that file:
@@ -22,50 +33,63 @@ writes one output file. Two rules govern the shape of that file:
 Rows are written **as they are consumed**, not buffered and flushed at the end
 (plan R15). A 2,000-row run killed at row 1,400 leaves a valid 1,400-row CSV,
 which is what makes `--skip-rows` a sufficient answer to "can I resume?" without
-persisting any state. The XLSX path streams rows into openpyxl's write-only
-worksheet, but a `.xlsx` is a zip container that is only finalized on save, so a
-killed XLSX run leaves nothing usable — CSV is the format to use for a very long
-run.
+persisting any state.
+
+The output file is created readable and writable by its owner only (mode 0600),
+because it holds the operator's addresses by construction and the usual default
+would let every other account on a shared machine read it.
 
 This module writes no cache and logs no line containing a row's contents (SPEC
-§9); errors are raised without quoting cell values. The CSV path writes the one
-file the caller named and nothing else.
-
-One caveat, on the XLSX path only, and it is openpyxl's rather than ours:
-building a workbook stages the worksheet XML — the operator's rows, addresses
-included — in a temporary file under `$TMPDIR` (`openpyxl.*`), which openpyxl
-removes on `save` and again in an `atexit` hook. A completed or an
-ordinarily-failed run therefore leaves nothing behind (there is a test pinning
-this). A `SIGKILL` or a power loss mid-run runs neither cleanup and can leave
-that staged XML on disk. **For a run over real addresses, write CSV** — the CSV
-path streams straight to the destination and never stages anything. This is
-flagged for the maintainer rather than worked around: the only fix is to reach
-into openpyxl's private writer, which is not a dependency contract worth taking
-on without a decision.
+§9); errors are raised without quoting cell values. It writes the one file the
+caller named and nothing else — no temp file, no sibling, no staging copy.
 
 ArcGIS / ArcPy equivalent
     This is `arcpy.conversion.TableToTable` / `ExportTable` writing the joined
-    geocode + Spatial Join result out to a `.csv`, or `arcpy.conversion.
-    TableToExcel` for the `.xlsx` — the final export step of the classic
-    geocode-then-spatial-join workflow. The formula-injection escaping has no
-    Esri equivalent; Esri's exporters do not do it, which is precisely why it is
-    done here.
+    geocode + Spatial Join result out to a `.csv` — the final export step of the
+    classic geocode-then-spatial-join workflow. `arcpy.conversion.TableToExcel`
+    is the `.xlsx` counterpart and has deliberately **no** equivalent here, for
+    the reason given at the top of this docstring. The formula-injection escaping
+    likewise has no Esri equivalent; Esri's exporters do not do it, which is
+    precisely why it is done here.
 """
 from __future__ import annotations
 
 import csv
+import os
 import re
 from collections.abc import Iterable
 from pathlib import Path
 
 from app.batch import BatchError, RowResult, result_columns
 
-# Output formats, keyed by the path suffix that selects them.
+# Output formats, keyed by the path suffix that selects them. CSV is the only
+# one, on purpose — see the module docstring.
 FORMAT_CSV = "csv"
-FORMAT_XLSX = "xlsx"
-SUPPORTED_FORMATS = (FORMAT_CSV, FORMAT_XLSX)
+SUPPORTED_FORMATS = (FORMAT_CSV,)
 
-_SUFFIX_FORMATS = {".csv": FORMAT_CSV, ".xlsx": FORMAT_XLSX}
+_SUFFIX_FORMATS = {".csv": FORMAT_CSV}
+
+# Suffix (and explicit format name) that gets its own refusal rather than the
+# generic "unsupported format" one, because ".xlsx out" is a reasonable thing to
+# have expected and the person deserves to know why it is not offered.
+XLSX_SUFFIX = ".xlsx"
+XLSX_FORMAT_NAME = "xlsx"
+
+# The whole of what a person sees when they ask for an .xlsx output. Written for
+# someone who does not know what a temp file is: no "SIGKILL", no "atexit", no
+# "staging", and it ends with the thing to type instead. Defined here, and used
+# by the CLI too, so there is exactly one wording to keep true.
+XLSX_OUTPUT_REFUSED = (
+    "cannot write .xlsx: this tool writes .csv only. Making an Excel file means "
+    "copying your addresses into a temporary working file first, and that copy "
+    "can be left behind on your computer if it loses power or the program is "
+    "stopped. Use --out <name>.csv instead — Excel opens .csv files normally."
+)
+
+# Permission bits the output file is created with: owner read/write, nobody
+# else. The file holds the operator's addresses, and a shared machine's default
+# would otherwise usually make it world-readable.
+OWNER_ONLY_MODE = 0o600
 
 # Leading characters that make a spreadsheet cell a formula rather than text
 # (plan D21). TAB and CR are included because Excel strips them and then
@@ -84,13 +108,6 @@ FORMULA_ESCAPE = "'"
 # `'-87.63192` text. The exclusion is deliberately strict: `-1+1` and `+cmd`
 # do not match it and are still escaped.
 _PLAIN_NUMBER = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\Z")
-
-# Same hint the XLSX reader gives, so an operator who hits either end of the
-# workbook path is told the same thing.
-_OPENPYXL_HINT = (
-    "writing .xlsx needs the optional 'batch' extra. Install it with: "
-    'pip install -e ".[batch]"  (or write a .csv instead)'
-)
 
 
 def neutralize_cell(text: str) -> str:
@@ -125,7 +142,7 @@ def _safe_cells(values: Iterable) -> list[str]:
     """Render a whole record at the **write boundary** — the only way out.
 
     Every row this module emits, header row included, passes through here on its
-    way to `csv.writer.writerow` / `Worksheet.append`, so no cell can reach a
+    way to `csv.writer.writerow`, so no cell can reach a
     file without `neutralize_cell` (plan D21). Escaping used to live one layer
     up, in row rendering, which left the header row — verbatim column names from
     the operator's input file, and therefore just as untrusted as its data — to
@@ -143,7 +160,19 @@ def resolve_format(path: Path, fmt: str | None = None) -> str:
     suffix, rather than guessing: silently writing CSV bytes to a name ending
     `.xls` produces a file the operator's spreadsheet refuses to open, and the
     error surfaces long after the run that could have been fixed.
+
+    An `.xlsx` destination gets its own plain-English refusal
+    (`XLSX_OUTPUT_REFUSED`). It is refused by *destination name*, not only by
+    requested format: `fmt="csv"` with a `results.xlsx` path would put CSV bytes
+    behind a name Excel then refuses to open, which is the same trap in a
+    different coat.
     """
+    if (
+        path.suffix.lower() == XLSX_SUFFIX
+        or (fmt is not None and fmt.strip().lower().lstrip(".") == XLSX_FORMAT_NAME)
+    ):
+        raise BatchError(XLSX_OUTPUT_REFUSED)
+
     if fmt is not None:
         normalized = fmt.strip().lower().lstrip(".")
         if normalized not in SUPPORTED_FORMATS:
@@ -159,7 +188,7 @@ def resolve_format(path: Path, fmt: str | None = None) -> str:
     except KeyError:
         raise BatchError(
             f"cannot infer output format from {path.name!r}; "
-            f"use a .csv or .xlsx suffix, or pass an explicit format"
+            f"use a .csv suffix, or pass an explicit format"
         ) from None
 
 
@@ -246,14 +275,12 @@ def write_results(
     output_path = Path(path)
     header_columns = tuple(headers)
     attributes = tuple(layer_attributes)
-    output_format = resolve_format(output_path, fmt)
+    resolve_format(output_path, fmt)  # refuses anything that is not a CSV
     generated_columns = result_columns(attributes)
     _refuse_colliding_columns(header_columns, generated_columns)
     header_row = header_columns + generated_columns
 
-    if output_format == FORMAT_CSV:
-        return _write_csv(results, output_path, header_row, header_columns, attributes)
-    return _write_xlsx(results, output_path, header_row, header_columns, attributes)
+    return _write_csv(results, output_path, header_row, header_columns, attributes)
 
 
 def _open_output(path: Path):
@@ -265,10 +292,31 @@ def _open_output(path: Path):
     bugs, and they deserve the same one-line message every other refusal gets.
     The directory is *not* created for them: this feature writes exactly one file,
     the one that was named, and nothing else (SPEC §9).
+
+    The file is created readable and writable **only by the user running the
+    command** (mode 0600): it holds their addresses, and on a shared machine the
+    usual default would let every other account read it. The mode is passed to
+    `os.open` at creation rather than applied with `chmod` afterwards, because a
+    chmod leaves a window — however short — in which the addresses are already on
+    disk under the permissive default. If the destination already exists its mode
+    is left as it is (`O_CREAT` only sets the mode on creation); that is the
+    operator's own file and silently re-permissioning it would be a surprise.
+    Windows does not enforce POSIX modes and ignores the value without
+    complaining, so this is a no-op there rather than an error.
     """
     try:
-        return path.open("w", newline="", encoding="utf-8-sig")
+        descriptor = os.open(
+            path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, OWNER_ONLY_MODE
+        )
     except OSError as error:
+        raise BatchError(
+            f"could not open {path} for writing: "
+            f"{error.strerror or type(error).__name__}"
+        ) from error
+    try:
+        return os.fdopen(descriptor, "w", newline="", encoding="utf-8-sig")
+    except OSError as error:  # pragma: no cover — wrapping a live fd rarely fails
+        os.close(descriptor)
         raise BatchError(
             f"could not open {path} for writing: "
             f"{error.strerror or type(error).__name__}"
@@ -300,59 +348,4 @@ def _write_csv(
             )
             handle.flush()
             written += 1
-    return written
-
-
-def _write_xlsx(
-    results: Iterable[RowResult],
-    path: Path,
-    header_row: tuple[str, ...],
-    header_columns: tuple[str, ...],
-    attributes: tuple[str, ...],
-) -> int:
-    """Stream results to an XLSX via openpyxl's write-only workbook.
-
-    `write_only=True` keeps at most one row of cells alive at a time instead of
-    materializing an in-memory worksheet, which is what lets a large run finish
-    on a modest machine. The workbook is still only a valid file once `save`
-    completes — see the module docstring on partial runs.
-
-    The import is lazy so the whole batch feature keeps working on a box where
-    the optional `[batch]` extra could not be installed and the operator writes
-    CSV instead.
-    """
-    try:
-        from openpyxl import Workbook
-    except ImportError as exc:
-        raise BatchError(_OPENPYXL_HINT) from exc
-
-    # Claim the destination before a single row is consumed. openpyxl only
-    # touches the path at `save`, i.e. at the very end, so an unwritable
-    # destination would otherwise be discovered after a run that may have taken
-    # half an hour — and discovered as a bare OSError from inside the library.
-    # Opening it here fails fast, in this module's own vocabulary. The empty file
-    # is the one the operator named; `save` overwrites it.
-    _open_output(path).close()
-
-    workbook = Workbook(write_only=True)
-    worksheet = workbook.create_sheet(title="results")
-    written = 0
-    try:
-        worksheet.append(_safe_cells(header_row))
-        for result in results:
-            worksheet.append(
-                _safe_cells(_output_row(result, header_columns, attributes))
-            )
-            written += 1
-    finally:
-        # Save even on a mid-iteration failure: openpyxl's write-only sheet
-        # cannot be reopened, so an unsaved workbook would throw away every row
-        # already consumed from a run that may have taken half an hour.
-        try:
-            workbook.save(path)
-        except OSError as error:
-            raise BatchError(
-                f"could not write {path}: "
-                f"{error.strerror or type(error).__name__}"
-            ) from error
     return written

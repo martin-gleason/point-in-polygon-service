@@ -11,6 +11,8 @@ them asserts that the queried address never appears on stdout or stderr.
 """
 import csv
 import importlib.util
+import os
+import stat
 import sys
 from pathlib import Path
 
@@ -400,19 +402,6 @@ def test_interrupt_keeps_the_rows_already_written(
     assert SECRET_ADDRESS not in streams.out + streams.err
 
 
-def test_xlsx_output_is_written(tmp_path, config_path, points_csv):
-    pytest.importorskip("openpyxl")
-    from openpyxl import load_workbook
-
-    out = tmp_path / "out.xlsx"
-    assert cli.main(latlon_argv(points_csv, out, config_path)) == 1
-
-    workbook = load_workbook(out)
-    rows = list(workbook.active.iter_rows(values_only=True))
-    assert rows[0][:3] == ("case_id", "lat", "lon")
-    assert len(rows) == 3  # header + two data rows
-
-
 # ---- whole-run failures: exit 2 ----------------------------------------
 
 
@@ -795,43 +784,130 @@ def test_unwritable_output_directory_exits_two_without_a_traceback(
     assert "Traceback" not in err
 
 
-# ---- C1: the .xlsx staging caveat belongs to the output format ----------
+# ---- output is CSV only; .xlsx INPUT is untouched -----------------------
+
+# Words a person who does not work in IT cannot act on. The refusal has to be
+# readable by the operator, not by the maintainer.
+JARGON = ("SIGKILL", "atexit", "staging", "stage", "TMPDIR", "openpyxl")
 
 
-def test_latlon_xlsx_run_warns_that_rows_are_staged_in_a_temp_file(
-    tmp_path, config_path, capsys
+def assert_no_jargon(message: str) -> None:
+    lowered = message.lower()
+    for word in JARGON:
+        assert word.lower() not in lowered, f"jargon {word!r} in: {message}"
+
+
+def test_xlsx_output_is_refused_with_exit_two_and_no_jargon(
+    tmp_path, config_path, points_csv, capsys
 ):
-    """A lat/lon run needs the caveat as much as a geocoding one.
+    argv = latlon_argv(points_csv, tmp_path / "results.xlsx", config_path)
 
-    The rows staged in $TMPDIR include the operator's passthrough columns, and
-    one of those may be an address column they never mapped — so the warning
-    cannot be conditional on whether the run geocodes.
-    """
-    pytest.importorskip("openpyxl")
-    source = write_csv(
-        tmp_path / "with_passthrough.csv",
-        ["Address", "lat", "lon"],
-        [[SECRET_ADDRESS, f"{INSIDE_LAT}", f"{INSIDE_LON}"]],
-    )
-
-    assert cli.main(latlon_argv(source, tmp_path / "out.xlsx", config_path)) == 0
+    assert cli.main(argv) == 2
 
     streams = capsys.readouterr()
-    assert "$TMPDIR" in streams.err
-    assert "openpyxl" in streams.err
-    # The wording must be accurate about when the temp file survives.
-    assert "SIGKILL" in streams.err
-    assert ".csv" in streams.err
+    assert "this tool writes .csv only" in streams.err
+    assert "--out <name>.csv" in streams.err
+    assert "Traceback" not in streams.err
+    assert_no_jargon(streams.err)
+    # And no file was made under the name that can never be written.
+    assert not (tmp_path / "results.xlsx").exists()
+
+
+def test_xlsx_output_is_refused_before_the_source_is_even_read(
+    tmp_path, config_path, capsys
+):
+    """The check is lexical and costs nothing, so it must not queue behind the
+    ones that cost a file read and a half-hour of geocoding.
+
+    The source here does not exist. If the .xlsx refusal were late, the message
+    would be about the missing file; that it is the .xlsx message proves nothing
+    was opened first.
+    """
+    missing = tmp_path / "no-such-source.csv"
+    assert not missing.exists()
+
+    assert cli.main(latlon_argv(missing, tmp_path / "out.xlsx", config_path)) == 2
+
+    err = capsys.readouterr().err
+    assert "this tool writes .csv only" in err
+    assert "no-such-source" not in err
+
+
+def test_xlsx_output_is_refused_before_a_single_address_is_geocoded(
+    tmp_path, config_path, monkeypatch, capsys
+):
+    # The expensive half. A geocoding run must not spend one request before
+    # finding out the destination is unusable.
+    with_geocoders(config_path, GEOCODER_BLOCK)
+    geocoder = StubGeocoder([matched_at(INSIDE_LON, INSIDE_LAT)])
+    monkeypatch.setattr(cli, "build_geocoders", lambda config: {"stub": geocoder})
+    source = write_csv(tmp_path / "in.csv", ["Address"], [[SECRET_ADDRESS]])
+
+    assert cli.main(address_argv(source, tmp_path / "out.xlsx", config_path)) == 2
+
+    assert geocoder.queries == []
+    streams = capsys.readouterr()
+    assert "this tool writes .csv only" in streams.err
     assert SECRET_ADDRESS not in streams.out + streams.err
 
 
-def test_a_csv_run_stays_quiet_about_staging(tmp_path, config_path, points_csv, capsys):
-    # The warning is about openpyxl only; a CSV run must not cry wolf.
-    assert cli.main(latlon_argv(points_csv, tmp_path / "out.csv", config_path)) == 1
+def test_an_xlsx_source_writes_a_csv_output_end_to_end(tmp_path, config_path):
+    # Reading a workbook is untouched by the CSV-only output rule: an operator
+    # whose caseload lives in Excel still runs it, they just get a .csv back.
+    openpyxl = pytest.importorskip("openpyxl")
 
-    message = capsys.readouterr().err
-    assert "$TMPDIR" not in message
-    assert "openpyxl" not in message
+    workbook = openpyxl.Workbook()
+    workbook.active.append(["case_id", "lat", "lon"])
+    workbook.active.append(["0042", INSIDE_LAT, INSIDE_LON])
+    workbook.active.append(["0043", OUTSIDE_LAT, OUTSIDE_LON])
+    source = tmp_path / "caseload.xlsx"
+    workbook.save(source)
+    workbook.close()
+
+    out = tmp_path / "out.csv"
+    assert cli.main(latlon_argv(source, out, config_path)) == 1
+
+    written = read_output(out)
+    assert [row["pip_status"] for row in written] == [STATUS_MATCHED, STATUS_OUTSIDE]
+    assert written[0]["pip_name"] == "alpha"
+    # The leading zero survived the workbook read and the CSV write.
+    assert written[0]["case_id"] == "0042"
+
+
+@pytest.mark.skipif(
+    os.name == "nt", reason="POSIX permission bits are not enforced on Windows"
+)
+def test_the_output_file_is_readable_only_by_its_owner(
+    tmp_path, config_path, points_csv
+):
+    out = tmp_path / "out.csv"
+    cli.main(latlon_argv(points_csv, out, config_path))
+
+    assert stat.S_IMODE(out.stat().st_mode) == 0o600
+
+
+def test_a_finished_run_says_what_the_file_holds_and_never_shows_an_address(
+    tmp_path, config_path, monkeypatch, capsys
+):
+    # One closing line, in plain words, for someone who would not otherwise
+    # think about where the file with their addresses in it is sitting.
+    with_geocoders(config_path, GEOCODER_BLOCK)
+    geocoder = StubGeocoder([matched_at(INSIDE_LON, INSIDE_LAT)])
+    monkeypatch.setattr(cli, "build_geocoders", lambda config: {"stub": geocoder})
+    source = write_csv(tmp_path / "in.csv", ["Address"], [[SECRET_ADDRESS]])
+    out = tmp_path / "out.csv"
+
+    assert cli.main(address_argv(source, out, config_path)) == 0
+
+    streams = capsys.readouterr()
+    assert "contains the addresses you looked up" in streams.err
+    assert "only your user account can read it" in streams.err
+    assert "delete it" in streams.err
+    assert_no_jargon(streams.err)
+    # It names the file, never a row (SPEC §9).
+    assert SECRET_ADDRESS not in streams.out + streams.err
+    # stdout stays clean and pipeable.
+    assert streams.out == ""
 
 
 # ---- C2: no unexpected exception escapes the top-level boundary ---------
