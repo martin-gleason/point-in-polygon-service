@@ -23,7 +23,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["app", "app.geocoding"]
+packages = ["app", "app.geocoding", "app.admin"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
