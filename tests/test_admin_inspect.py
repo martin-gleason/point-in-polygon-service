@@ -456,7 +456,7 @@ def test_zip_with_two_shapefiles_refuses_to_guess_and_offers_the_choice(tmp_path
         read_candidate(archive)
 
     finding = raised.value.finding
-    assert finding.code == "PIP-L001"
+    assert finding.code == "PIP-L019"
     assert finding.detail["reason"] == "several_shapefiles"
     assert finding.detail["shapefiles"] == ["precincts", "wards"]
     assert "precincts" in finding.specifics and "wards" in finding.specifics
@@ -466,9 +466,12 @@ def test_zip_with_two_shapefiles_refuses_to_guess_and_offers_the_choice(tmp_path
     assert len(chosen.frame) == 2
     chosen.cleanup()
 
+    # A choice that names nothing in the archive is the same question asked
+    # again, not a file that could not be read: same code.
     with pytest.raises(CandidateError) as bad_choice:
         read_candidate(archive, select="boroughs")
     assert bad_choice.value.finding.detail["reason"] == "unknown_selection"
+    assert bad_choice.value.finding.code == "PIP-L019"
 
 
 def test_zip_with_no_shapefile_in_it_at_all(tmp_path):
@@ -518,7 +521,7 @@ def test_two_folders_holding_the_same_stem_are_two_shapefiles_not_one(tmp_path):
         read_candidate(archive)
 
     finding = raised.value.finding
-    assert finding.code == "PIP-L001"
+    assert finding.code == "PIP-L019"
     assert finding.detail["reason"] == "several_shapefiles"
     # Both are offered, each named where it actually sits, so F8-T4 can render a
     # picker that distinguishes them at all.
@@ -1004,6 +1007,68 @@ def test_geopackage_with_two_layers_refuses_to_guess(tmp_path):
 
     chosen = read_candidate(path, select="precincts")
     assert len(chosen.frame) == 2
+
+
+def test_a_valid_multi_layer_file_is_not_reported_as_unreadable(tmp_path):
+    """"Which of these did you mean" is not "I could not read this file".
+
+    Reproduced against the pre-fix reader, which filed this under PIP-L001.
+    That entry's own text says the file "never got as far as opening" and tells
+    the operator to check that their download finished — about a perfectly good
+    GeoPackage that opened, and whose two layers the tool has just listed by
+    name in the same paragraph. `data/layers.gpkg`, which this service writes
+    itself, is exactly such a file, so it is what a maintainer is most likely to
+    drag in first. The page told them their own valid data was corrupt.
+    """
+    path = tmp_path / "layers.gpkg"
+    _frame(rows=4).to_file(path, layer="wards", driver="GPKG")
+    _frame(rows=2).to_file(path, layer="precincts", driver="GPKG")
+
+    with pytest.raises(CandidateError) as raised:
+        read_candidate(path)
+
+    finding = raised.value.finding
+    assert finding.code == "PIP-L019"
+    assert finding.is_blocking
+    # The detail a later layer-picker needs survives the recoding untouched.
+    assert finding.detail["layers"] == ["precincts", "wards"]
+    # And the paragraph no longer makes the two claims that were false.
+    paragraph = finding.message.lower()
+    assert "finished downloading" not in paragraph
+    assert "never got as far as opening" not in paragraph
+
+
+def test_the_same_code_covers_a_zip_holding_two_shapefiles(tmp_path):
+    """One situation, one code. A zip of wards and precincts asks the operator
+    the same question as a GeoPackage of wards and precincts, and was mis-filed
+    the same way."""
+    staging = tmp_path / "staging"
+    _write_shapefile(staging, "wards")
+    _write_shapefile(staging, "precincts", rows=2)
+    archive = _zip_directory(staging, tmp_path / "both.zip")
+
+    with pytest.raises(CandidateError) as raised:
+        read_candidate(archive)
+
+    finding = raised.value.finding
+    assert finding.code == "PIP-L019"
+    assert finding.detail["reason"] == "several_shapefiles"
+    assert finding.detail["shapefiles"] == ["precincts", "wards"]
+    assert "finished downloading" not in finding.message.lower()
+
+
+def test_a_file_that_genuinely_cannot_be_read_still_says_so(tmp_path):
+    """The control. Had PIP-L019 simply replaced PIP-L001 everywhere, the two
+    tests above would pass while the registry lost the one code that exists for
+    a download cut short."""
+    fake = tmp_path / "wards.zip"
+    fake.write_bytes(b"this is not a zip file")
+
+    with pytest.raises(CandidateError) as raised:
+        read_candidate(fake)
+
+    assert raised.value.finding.code == "PIP-L001"
+    assert "finished downloading" in raised.value.finding.message.lower()
 
 
 def test_a_file_that_is_not_a_geopackage(tmp_path):

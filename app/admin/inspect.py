@@ -14,8 +14,12 @@ Blocking versus riding along
     A blocking failure means there is no frame at all, so there is nothing for
     the checks to look at and nothing to draw on a preview map. Those raise
     `CandidateError`, which carries the `Finding` — PIP-L001, PIP-L002,
-    PIP-L012, PIP-L013, PIP-L014, exactly the five codes `app.admin.validate`
-    leaves to this module. Everything the reader notices that still leaves a
+    PIP-L012, PIP-L013, PIP-L014 and PIP-L019, exactly the six codes
+    `app.admin.validate` leaves to this module. PIP-L019 is the odd one of the
+    six: the file read perfectly and holds several maps, so the refusal is not
+    "I could not read this" but "say which one", and it is a separate code
+    because PIP-L001's text tells the operator their download was cut short.
+    Everything the reader notices that still leaves a
     usable frame (PIP-L017, PIP-L018) rides along in `Candidate.findings` for
     F8-T4 to merge with the validator's list.
 
@@ -297,6 +301,7 @@ class Candidate:
         display_name: str,
         attribute_columns: Sequence[str] = (),
         installed_layers: Sequence[InstalledLayer] = (),
+        replacing: InstalledLayer | None = None,
     ) -> CandidateContext:
         """The `CandidateContext` for this candidate, with what the reader learned
         already filled in.
@@ -307,12 +312,18 @@ class Candidate:
         rather than by hand is what stops F8-T4 from constructing a context that
         leaves `source_kind` at `SOURCE_UNKNOWN`, which would silently disable
         PIP-L018 and reword PIP-L003 for a format this is not.
+
+        `replacing` is the installed layer this candidate is about to take the
+        place of, and it must *not* also appear in `installed_layers` — the
+        caller splits the two with `app.admin.main._split_replaced`, which is
+        the one place that decision is made.
         """
         return CandidateContext(
             layer_id=layer_id,
             display_name=display_name,
             attribute_columns=tuple(attribute_columns),
             installed_layers=tuple(installed_layers),
+            replacing=replacing,
             source_kind=self.source_kind,
             vintage=self.vintage,
             source_files=self.source_files,
@@ -1003,10 +1014,17 @@ def _choose_shapefile(stems: list[str], *, select: str | None, where: str) -> st
     sorted first, the preview would draw a real, valid, correct-looking layer,
     and nothing anywhere would say it was not the one asked for.
 
-    There is no registry code for "which of these did you mean", so this fires
-    PIP-L001 — the reader could not get *a* map out of the file — and puts the
-    choices in `detail["shapefiles"]`, which is what F8-T4 renders as a picker
-    before calling back with `select=`.
+    The refusal is PIP-L019 — "this file holds more than one map, say which" —
+    and not PIP-L001. The distinction is the whole point of the separate code:
+    PIP-L001 says the file never opened and asks the operator to check that
+    their download finished, which about a perfectly good zip of two shapefiles
+    is simply false and sends them off to re-download a file that was fine. The
+    choices go in `detail["shapefiles"]`, which is what F8-T4 renders as a
+    picker before calling back with `select=`.
+
+    The two `select=` misses below are the same situation and carry the same
+    code: the archive opened, its shapefiles are known and listed, and what is
+    missing is still only an unambiguous choice.
 
     The names offered are whatever identifies a set where it came from: a bare
     stem for loose files, and inside an archive the folder as well
@@ -1026,7 +1044,7 @@ def _choose_shapefile(stems: list[str], *, select: str | None, where: str) -> st
             return by_stem[0]
         if by_stem:
             raise _blocking(
-                "PIP-L001",
+                "PIP-L019",
                 f"There is more than one shapefile called {select!r} in "
                 f"{where!r} — {_join_names(by_stem)} — sitting in different "
                 f"folders. Name the folder as well.",
@@ -1035,7 +1053,7 @@ def _choose_shapefile(stems: list[str], *, select: str | None, where: str) -> st
                 shapefiles=by_stem,
             )
         raise _blocking(
-            "PIP-L001",
+            "PIP-L019",
             f"There is no shapefile called {select!r} in {where!r}. The ones in "
             f"it are {_join_names(unique)}.",
             reason="unknown_selection",
@@ -1043,7 +1061,7 @@ def _choose_shapefile(stems: list[str], *, select: str | None, where: str) -> st
             shapefiles=unique,
         )
     raise _blocking(
-        "PIP-L001",
+        "PIP-L019",
         f"There {'is' if len(unique) == 1 else 'are'} {len(unique)} separate "
         f"shapefiles inside {where!r} — {_join_names(unique)} — and this tool "
         f"installs one layer at a time. Say which one you want, or unpack the "
@@ -1363,8 +1381,12 @@ def _read_geopackage(path: Path, *, name: str, select: str | None) -> Candidate:
             name=name,
         )
     if len(layer_names) > 1 and select is None:
+        # PIP-L019, not PIP-L001. `data/layers.gpkg` — the file this service
+        # writes itself — has two layers in it, so this is the single most
+        # likely thing a maintainer drags in first, and under PIP-L001 the page
+        # told them their own valid GeoPackage had not finished downloading.
         raise _blocking(
-            "PIP-L001",
+            "PIP-L019",
             f"There are {len(layer_names)} layers inside {name!r} — "
             f"{_join_names(layer_names)} — and this tool installs one layer at a "
             f"time. Say which one you want.",
@@ -1374,7 +1396,7 @@ def _read_geopackage(path: Path, *, name: str, select: str | None) -> Candidate:
     layer = select or layer_names[0]
     if layer not in layers:
         raise _blocking(
-            "PIP-L001",
+            "PIP-L019",
             f"There is no layer called {layer!r} inside {name!r}. The ones in it "
             f"are {_join_names(layer_names)}.",
             reason="unknown_selection",

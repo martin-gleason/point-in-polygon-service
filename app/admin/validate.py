@@ -126,12 +126,21 @@ class CandidateContext:
     `vintage` is whatever the reader could find out about how old the data is
     (a GeoPackage's last-change stamp, an ArcGIS service's last-edit date);
     None means nothing was found, which is the normal case for a shapefile.
+
+    `installed_layers` is what this candidate is compared *against*, and the
+    layer it is replacing is deliberately not in it: it goes in `replacing`
+    instead. One caller decides that split (`app.admin.main._split_replaced`)
+    and hands the two halves here, so the name check and the whereabouts check
+    cannot disagree about whether a reinstall is a collision. `replacing` being
+    set is what turns PIP-L009 ("that short name is taken") into PIP-L020
+    ("this replaces an installed layer") — see `_check_short_name`.
     """
 
     layer_id: str
     display_name: str
     attribute_columns: tuple[str, ...] = ()
     installed_layers: tuple[InstalledLayer, ...] = ()
+    replacing: InstalledLayer | None = None
     source_kind: str = SOURCE_UNKNOWN
     vintage: str | None = None
     source_files: tuple[str, ...] = ()
@@ -195,7 +204,47 @@ def validate_candidate(
 
 
 def _check_short_name(context: CandidateContext) -> list[Finding]:
-    """PIP-L009 — the chosen layer id collides with one already installed."""
+    """PIP-L009 or PIP-L020 — what the chosen short name means for what is
+    already installed.
+
+    Two different things wear the same shape. If the name belongs to some other
+    installed layer, this candidate would hide it and answers would start coming
+    from the wrong map: PIP-L009, blocking. If it belongs to the layer this
+    operator is deliberately replacing — `context.replacing` — then a name
+    collision is not an error at all, it is the entire point, and blocking it
+    makes updating a layer impossible. That case is PIP-L020, a warning: nothing
+    is hidden, but the fact that installed areas are about to be dropped is not
+    something to leave unsaid, and a warning is exactly this registry's word for
+    "you may install this once you have looked at it" (see `SEVERITY_WARNING`).
+
+    A blocking finding here would be indistinguishable, on the page, from a
+    corrupt file: `blocking` is one boolean and F8-T5 puts the Install button
+    behind it. Updating a layer is the commonest reason to open this tool after
+    the first use, so it has to end in a pressable button.
+
+    ArcGIS / ArcPy equivalent
+        ArcGIS Pro's Share > Publish dialog does exactly this two-way split: a
+        name already in the portal stops the publish, unless you tick "overwrite
+        the existing service", at which point the same name becomes required and
+        the dialog warns you that the old one goes away. `context.replacing` is
+        that tick box, decided one step earlier by the caller.
+    """
+    if context.replacing is not None and context.replacing.id == context.layer_id:
+        replaced = context.replacing
+        return [
+            build_finding(
+                "PIP-L020",
+                specifics=(
+                    f"The name {context.layer_id!r} is the installed layer "
+                    f"{replaced.name!r}, and installing this replaces it."
+                ),
+                detail={
+                    "requested_id": context.layer_id,
+                    "replacing_id": replaced.id,
+                    "replacing_name": replaced.name,
+                },
+            )
+        ]
     clash = next(
         (
             installed

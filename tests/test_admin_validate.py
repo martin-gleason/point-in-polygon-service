@@ -51,9 +51,22 @@ POLICE_DISTRICTS = InstalledLayer(
     bounds=(-88.00, 41.60, -87.50, 42.10),
 )
 
-ALL_CODES = tuple(f"PIP-L{number:03d}" for number in range(1, 19))
-# Raised by the file reader in F8-T2, not by validate_candidate.
-READER_CODES = {"PIP-L001", "PIP-L002", "PIP-L012", "PIP-L013", "PIP-L014"}
+ALL_CODES = tuple(f"PIP-L{number:03d}" for number in range(1, 21))
+# Raised by the file reader in F8-T2, not by validate_candidate. PIP-L019 —
+# "this file holds several maps, say which one" — belongs to the reader and not
+# to the validator, because only the reader ever sees a file with more than one
+# map in it: by the time `validate_candidate` runs, one has been chosen and
+# there is a single frame of shapes. PIP-L020 is the validator's, and is the one
+# entry in the registry that fires when nothing is wrong — the name collision it
+# reports is the operator's own intention.
+READER_CODES = {
+    "PIP-L001",
+    "PIP-L002",
+    "PIP-L012",
+    "PIP-L013",
+    "PIP-L014",
+    "PIP-L019",
+}
 
 
 def clean_frame() -> gpd.GeoDataFrame:
@@ -472,6 +485,57 @@ def test_l009_does_not_fire_on_a_free_short_name():
 def test_l009_does_not_fire_on_a_merely_similar_name():
     context = clean_context(layer_id="police_districts_2026")
     assert "PIP-L009" not in codes_from(clean_frame(), context)
+
+
+# --------------------------------------------------------------------------
+# PIP-L020 — the same name, but on purpose
+# --------------------------------------------------------------------------
+
+
+def test_l020_replaces_l009_when_the_layer_is_being_replaced_on_purpose():
+    """A name collision with the layer you are replacing is not an error.
+
+    Reproduced against the pre-fix validator, which had no `replacing` at all:
+    the caller handed it every installed layer including the one being replaced,
+    PIP-L009 fired, `has_blocking` came back true, and the Install button F8-T5
+    puts behind that boolean could never be pressed. Reinstalling a layer — the
+    commonest reason to open this tool a second time — was impossible.
+    """
+    context = clean_context(
+        layer_id="police_districts",
+        installed_layers=(),
+        replacing=POLICE_DISTRICTS,
+    )
+    findings = validate_candidate(clean_frame(), context=context)
+    by_code = {finding.code: finding for finding in findings}
+
+    assert "PIP-L009" not in by_code
+    assert "PIP-L020" in by_code
+    assert by_code["PIP-L020"].severity == SEVERITY_WARNING
+    # The point of the whole fix: the operator can act on this.
+    assert has_blocking(findings) is False
+    # And it is still *said*, because installed areas are about to be dropped.
+    assert "Chicago Police Districts" in by_code["PIP-L020"].specifics
+    assert by_code["PIP-L020"].detail["replacing_id"] == "police_districts"
+
+
+def test_l009_still_blocks_a_collision_with_a_layer_you_are_not_replacing():
+    """The other half. Replacing `wards` must not license overwriting
+    `police_districts`, or the fix above would have removed the check."""
+    context = clean_context(
+        layer_id="police_districts",
+        installed_layers=(POLICE_DISTRICTS,),
+        replacing=InstalledLayer(id="wards", name="Wards"),
+    )
+    findings = validate_candidate(clean_frame(), context=context)
+    by_code = {finding.code: finding for finding in findings}
+    assert "PIP-L020" not in by_code
+    assert by_code["PIP-L009"].severity == SEVERITY_BLOCKING
+    assert has_blocking(findings) is True
+
+
+def test_l020_does_not_fire_when_nothing_is_being_replaced():
+    assert "PIP-L020" not in codes_from(clean_frame(), clean_context())
 
 
 # --------------------------------------------------------------------------
@@ -940,6 +1004,12 @@ def test_the_runtime_detail_sentences_are_free_of_undefined_jargon_too():
             geometry=[None, EAST, bowtie()],
             crs="EPSG:4326",
         ), clean_context()),
+        # PIP-L020's sentence, which only exists when a layer is being replaced.
+        (clean_frame(), clean_context(
+            layer_id="police_districts",
+            installed_layers=(),
+            replacing=POLICE_DISTRICTS,
+        )),
     ):
         for finding in validate_candidate(extra_frame, context=extra_context):
             offences.extend(

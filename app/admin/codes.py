@@ -8,12 +8,20 @@ shapes), and the text comes from here. That keeps the codes stable enough to
 quote in a support request, searchable in the docs, and translatable later.
 
 Who raises what
-    The checks in `app.admin.validate` decide PIP-L003 through PIP-L011 and
-    PIP-L015 through PIP-L018 from an already-loaded frame of shapes.
-    PIP-L001, PIP-L002, PIP-L012, PIP-L013 and PIP-L014 are raised by the file
-    reader in a later task (F8-T2), because only the reader touches bytes, zip
-    archives, and web addresses. They are defined here anyway so that there is
-    exactly one registry and one numbering scheme.
+    The checks in `app.admin.validate` decide PIP-L003 through PIP-L011,
+    PIP-L015 through PIP-L018 and PIP-L020 from an already-loaded frame of
+    shapes. PIP-L001, PIP-L002, PIP-L012, PIP-L013, PIP-L014 and PIP-L019 are
+    raised by the file reader (F8-T2), because only the reader touches bytes,
+    zip archives, and web addresses. They are defined here anyway so that there
+    is exactly one registry and one numbering scheme.
+
+    PIP-L019 is the one entry whose existence is worth explaining. "I opened
+    this file and it holds several maps — which did you mean?" was originally
+    filed under PIP-L001, whose text says the file "never got as far as
+    opening" and asks the operator to check that their download finished. It is
+    the opposite situation: the read succeeded, the tool knows exactly what is
+    inside, and the only missing thing is the operator's choice. A valid
+    GeoPackage carrying two layers was being reported as a corrupt file.
 
 House rules for the text
     Every string in this table is read by someone who has never heard of a
@@ -409,6 +417,46 @@ LAYER_CODES: dict[str, LayerCode] = {
             "make sure you picked the columns you meant. If the "
             "shortened names are hard to tell apart, ask for the same data as a "
             ".gpkg instead; that format keeps names at full length.",
+        ),
+        _entry(
+            "PIP-L019",
+            SEVERITY_BLOCKING,
+            "This file holds more than one map, so you have to say which",
+            "This file opened and read perfectly well, and there is more than "
+            "one separate set of areas inside it. This tool installs one set at "
+            "a time, and nothing you have sent so far says which of them you "
+            "meant.",
+            "There is nothing the matter with the file — this is the normal way "
+            "an agency publishes several things at once, wards and precincts "
+            "and boundaries all in the one download. Taking the first one for "
+            "you would be a guess, and a wrong guess installs a real, "
+            "correct-looking map of the wrong thing: the preview would look "
+            "right, every answer would arrive looking right, and nothing "
+            "anywhere would say it was not the one you asked for.",
+            "The names of the ones inside it are listed above. Choose the one "
+            "you want and send the file again with that choice, and the rest of "
+            "the file is simply left alone. If you would rather not choose "
+            "here, open the file in a mapping program and export just the areas "
+            "you want to a file of their own, or ask whoever sent it for that "
+            "one on its own.",
+        ),
+        _entry(
+            "PIP-L020",
+            SEVERITY_WARNING,
+            "This will replace a layer that is already installed",
+            "The short name you chose is the one an installed layer already "
+            "uses, so installing this puts these areas in that layer's place "
+            "and the areas that are there now are dropped.",
+            "That is exactly right if you meant to update it — the same "
+            "districts, redrawn. If you did not mean to, every answer that "
+            "comes from that short name today will come from this file from now "
+            "on, and the layer it is replacing is not kept anywhere.",
+            "Look at the preview map and satisfy yourself that these are the "
+            "areas you meant to put in its place, and that they cover the same "
+            "ground the old ones did. If what you wanted was a second layer "
+            "beside the one already installed rather than in place of it, go "
+            "back and give this one a short name of its own — the year or the "
+            "county usually reads well, as in wards_2026.",
         ),
     )
 }
