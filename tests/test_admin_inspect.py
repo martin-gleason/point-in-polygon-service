@@ -883,10 +883,17 @@ def test_a_shapefile_has_no_vintage_and_says_so_with_its_write_date(tmp_path):
     assert "PIP-L017" in _codes(candidate)
     written_on = candidate.facts["shapefile_written_on"]
     assert written_on is not None
-    # A real date, and today's, since GDAL wrote the file a moment ago.
-    from datetime import date
+    # A real date, and today's, since GDAL wrote the file a moment ago. GDAL
+    # stamps the .dbf header in UTC while the test machine may be on any
+    # offset, so between local midnight and UTC midnight the two disagree by a
+    # day. Accepting either is the honest assertion; pinning one made this fail
+    # for a few hours every night depending on the timezone.
+    from datetime import date, datetime, timezone
 
-    assert written_on == date.today().isoformat()
+    assert written_on in {
+        date.today().isoformat(),
+        datetime.now(timezone.utc).date().isoformat(),
+    }
     specifics = next(f for f in candidate.findings if f.code == "PIP-L017").specifics
     assert written_on in specifics
     assert "written out" in specifics

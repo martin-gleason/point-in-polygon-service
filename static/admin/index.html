@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Install a map layer — Point-in-Polygon Service</title>
+  <!-- Same-origin only. No font, no map tile, no library: this page is opened
+       on a laptop that may have no network at all, and a page that needs one is
+       a page that fails in the room it was built for. -->
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <header>
+    <h1>Install a map layer</h1>
+    <p class="lede">
+      This tool runs on this computer only — nothing here is on the internet.
+      Choose a file, look at the shape it draws over the layers already
+      installed, and then install it. Nothing is written anywhere until you
+      press Install.
+    </p>
+  </header>
+
+  <main>
+    <section class="card" aria-labelledby="source-heading">
+      <h2 id="source-heading">1. Choose what to install</h2>
+
+      <form id="source-form" novalidate>
+        <!-- Three ways in, and they are peers. Drag-and-drop alone would shut
+             out every keyboard and screen-reader user, so the file button is a
+             real <input type="file"> that opens the usual chooser, and it takes
+             several files at once because a shapefile is not one file. -->
+        <div id="drop-zone" class="drop-zone">
+          <p class="drop-hint">Drag a map file here, or use the button below.</p>
+          <div class="field">
+            <label for="file-input">Map file — or all the files a shapefile came in</label>
+            <input type="file" id="file-input" name="files" multiple
+                   aria-describedby="file-hint">
+            <span class="hint" id="file-hint">
+              A .geojson, a .gpkg, a .zip, or a .shp together with its .dbf,
+              .shx and .prj — select all of them at once.
+            </span>
+          </div>
+          <p id="chosen-files" class="chosen"></p>
+        </div>
+
+        <p class="separator">or</p>
+
+        <div class="field">
+          <label for="source-url">Web address of a published map service</label>
+          <input type="url" id="source-url" name="url" autocomplete="off"
+                 aria-describedby="url-hint">
+          <span class="hint" id="url-hint">
+            An ArcGIS REST address — one that ends in /FeatureServer/0 or
+            /MapServer/0, pointing at the data itself rather than at the page
+            describing it.
+          </span>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="layer-id">Short name for this layer</label>
+            <input type="text" id="layer-id" name="layer_id" autocomplete="off"
+                   aria-describedby="layer-id-hint">
+            <span class="hint" id="layer-id-hint">
+              How a lookup asks for this layer, as in wards_2026. Letters,
+              numbers and underscores.
+            </span>
+          </div>
+          <div class="field">
+            <label for="display-name">Name to show people</label>
+            <input type="text" id="display-name" name="display_name"
+                   autocomplete="off" aria-describedby="display-name-hint">
+            <span class="hint" id="display-name-hint">
+              Written out in full, as in Chicago Wards (2026).
+            </span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="attributes">Columns to report back with each area</label>
+          <input type="text" id="attributes" name="attributes" autocomplete="off"
+                 aria-describedby="attributes-hint">
+          <span class="hint" id="attributes-hint">
+            Separated by commas. These are the whole answer somebody gets back —
+            the ward number, the district name. The columns this file actually
+            has are listed beside the preview once you have looked at it.
+          </span>
+        </div>
+
+        <div class="field">
+          <label for="select-layer">Which map inside the file (only if it holds several)</label>
+          <input type="text" id="select-layer" name="select" autocomplete="off"
+                 aria-describedby="select-layer-hint">
+          <span class="hint" id="select-layer-hint">
+            Leave this empty to start with. If the file turns out to hold more
+            than one set of areas, their names are listed in the answer and you
+            put the one you want here.
+          </span>
+        </div>
+
+        <button type="submit" id="inspect-button">Look at this layer</button>
+      </form>
+    </section>
+
+    <!-- The live region. Kept in the DOM at all times and never `hidden`, so
+         the very first outcome — including every failure — is announced. When
+         empty it takes no visual space (see .status:not(:empty) in admin.css). -->
+    <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
+
+    <!-- The heading takes focus when results arrive (a user-initiated submit is
+         exactly when moving focus is correct), and it is described by the
+         summary line so the count — "2 must be fixed, 1 worth checking" — is
+         spoken on arrival rather than sitting in a paragraph nothing points
+         at. tabindex="-1" makes it focusable by script only; it never joins
+         the tab order. -->
+    <section class="card" id="findings-card" aria-labelledby="findings-heading" hidden>
+      <h2 id="findings-heading" tabindex="-1" aria-describedby="findings-summary">
+        2. What this tool found
+      </h2>
+      <p class="hint" id="findings-summary"></p>
+      <ol class="findings" id="findings"></ol>
+    </section>
+
+    <section class="card" id="map-card" aria-labelledby="map-heading" hidden>
+      <h2 id="map-heading">3. Look at the shape</h2>
+      <p class="hint">
+        The layer you are installing is drawn on top, as a heavy dashed outline.
+        The layers already installed are underneath, in thin solid grey. No
+        automatic check can tell you that a file is out of date — this drawing
+        is the only thing that can.
+      </p>
+
+      <!-- The payload carries two rectangles and says the choice belongs to
+           the page: one taking in the candidate and everything installed, one
+           fitted to the candidate alone. A ward inside a county is a speck in
+           the first, so the operator needs both — and switching between them
+           rebuilds the one shared transform rather than adding a second. -->
+      <!-- A button whose label swaps, NOT a toggle carrying aria-pressed. The
+           two are mutually exclusive patterns: aria-pressed describes the
+           state of the control, the label describes the action it performs,
+           and a screen reader reading both says the opposite of the truth
+           ("Show everything installed as well … pressed"). The swapping label
+           is the one kept, because it names the action in the operator's own
+           words and because it is announced on the button that still has
+           focus. Which view is currently drawn is stated in words in
+           #map-summary, where the rest of the map's content already lives. -->
+      <div class="map-controls">
+        <button type="button" id="zoom-toggle" disabled>
+          Zoom in on this layer
+        </button>
+      </div>
+
+      <div class="map-and-columns">
+        <div class="map-holder">
+          <!-- The accessible name is the drawing's CONTENT, not the heading.
+               "3. Look at the shape" told somebody who cannot look at it to do
+               the one thing they cannot, and said nothing about what was
+               drawn. admin.js rewrites this label from the payload on every
+               render — what is drawn, how it sits against the layers already
+               installed, and how faithful the outlines are. The description
+               carries the same sentences in visible text, plus the marked rows
+               and every note, so nothing on this map is visual-only. -->
+          <svg id="preview-map" class="map" viewBox="0 0 900 700"
+               preserveAspectRatio="xMidYMid meet" role="img"
+               aria-label="The map has not been drawn yet."
+               aria-describedby="map-summary marked-rows preview-notes">
+            <g id="installed-group"></g>
+            <g id="candidate-group"></g>
+          </svg>
+
+          <!-- Shape, not colour: WCAG 1.4.1. Every legend entry names the line
+               style as well, and the swatches differ in weight and dash. -->
+          <ul class="legend" id="map-legend">
+            <li><span class="swatch swatch-candidate" aria-hidden="true"></span>
+              This layer — heavy dashed outline</li>
+            <li><span class="swatch swatch-installed" aria-hidden="true"></span>
+              Already installed — thin solid outline</li>
+            <li><span class="swatch swatch-marked" aria-hidden="true"></span>
+              Marked rows — dotted outline, ringed</li>
+          </ul>
+          <p id="map-summary" class="map-summary"></p>
+        </div>
+
+        <!-- PIP-L010's text says the columns this file has are "listed beside
+             the preview". They are: here, beside it. -->
+        <aside class="columns-panel" aria-labelledby="columns-heading">
+          <h3 id="columns-heading">Columns in this file</h3>
+          <!-- This list scrolls (admin.css caps its height), and a precinct
+               shapefile routinely has fifteen-plus columns. Firefox and Safari
+               do not make a scroll container focusable on their own, and the
+               <li>s hold nothing focusable, so without tabindex everything
+               past the ninth row is unreachable by keyboard — WCAG 2.1.1. It
+               is focusable and named, so it is announced as a region the
+               arrow keys scroll. -->
+          <ul class="columns" id="columns" tabindex="0"
+              aria-labelledby="columns-heading"></ul>
+          <p class="hint" id="marked-rows"></p>
+        </aside>
+      </div>
+
+      <ul class="notes" id="preview-notes"></ul>
+    </section>
+
+    <section class="card" id="install-card" aria-labelledby="install-heading" hidden>
+      <h2 id="install-heading">4. Install it</h2>
+      <!-- The confirmation is never greyed out. "The map is the layer I meant
+           to install" is the whole point of this feature, and on a clean file
+           it used to be un-tickable and unexplained — the one path where the
+           operator most needs to say yes was the one path where they could
+           not. admin.js drops the warnings clause from this label when there
+           are no warnings. -->
+      <div class="field field-check">
+        <input type="checkbox" id="ack-warnings" name="ack">
+        <label for="ack-warnings" id="ack-label">
+          I have read the things worth checking above, and the map is the layer
+          I meant to install.
+        </label>
+      </div>
+
+      <!-- aria-disabled, not `disabled`. A `disabled` button is out of the tab
+           order, so a keyboard or screen-reader user can never land on it and
+           hear WHY it is off — and when it silently became enabled, nothing
+           announced that either. This one stays reachable, always carries
+           #install-hint as its description, and admin.js refuses the click. -->
+      <button type="button" id="install-button" aria-disabled="true"
+              aria-describedby="install-hint">Install this layer</button>
+      <p class="hint" id="install-hint">
+        Choose a file and look at the map first.
+      </p>
+    </section>
+  </main>
+
+  <script type="module" src="/admin.js"></script>
+</body>
+</html>

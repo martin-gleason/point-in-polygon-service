@@ -1,0 +1,306 @@
+/* F8-T5 — the layer installer page. Self-contained: no external font, no
+   external asset, no map tile. This page is opened on a laptop that may have no
+   network at all, so anything it needs, it ships with.
+
+   Same house style as static/style.css — custom properties, a light and a dark
+   palette, and colour that is never the only carrier of meaning.
+
+   Contrast (WCAG 2.1 AA: >=4.5:1 for text, >=3:1 for UI boundaries and for
+   graphical objects such as the map's own linework):
+     light  --ink #1a1d21 on --card #ffffff .......... 16.1:1
+            --muted-ink #5b636c on --card #ffffff ..... 5.6:1
+            --field-border #828892 on --bg #f6f7f9 .... 3.1:1
+            --blocking-ink #a3231b on --blocking-bg ... 5.4:1
+            --warning-ink #7a4f00 on --warning-bg ..... 5.9:1
+            --candidate-ink #b3261e on --card ......... 5.9:1  (map linework)
+            --installed-ink #5b636c on --card ......... 5.6:1  (map linework)
+     dark   --ink #e6e9ec on --card #171b21 .......... 13.0:1
+            --muted-ink #9aa4ae on --card #171b21 ..... 6.4:1
+            --field-border #657282 on --bg #0f1216 .... 3.4:1
+            --blocking-ink #ff7b72 on --blocking-bg ... 6.2:1
+            --warning-ink #e3b341 on --warning-bg ..... 7.7:1
+            --candidate-ink #ff9d94 on --card ......... 7.4:1  (map linework)
+            --installed-ink #9aa4ae on --card ......... 6.4:1  (map linework)
+   Severity is carried by a word ("Must be fixed" / "Worth checking") and by a
+   left border thickness as well as by colour; the map distinguishes layers by
+   stroke weight and dash pattern as well as by colour. */
+
+:root {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --ink: #1a1d21;
+  --muted-ink: #5b636c;
+  --border: #d9dee3;
+  --field-border: #828892;
+  --accent: #155fd0;
+  --btn-fg: #ffffff;
+  --blocking-ink: #a3231b;
+  --blocking-bg: #fce8e6;
+  --warning-ink: #7a4f00;
+  --warning-bg: #fdf3e2;
+  --ok-ink: #10743a;
+  --ok-bg: #e6f4ea;
+  --candidate-ink: #b3261e;
+  --installed-ink: #5b636c;
+  --installed-fill: rgba(91, 99, 108, 0.12);
+  --marked-ink: #6a1b9a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1216;
+    --card: #171b21;
+    --ink: #e6e9ec;
+    --muted-ink: #9aa4ae;
+    --border: #2a323b;
+    --field-border: #657282;
+    --accent: #58a6ff;
+    --btn-fg: #0f1216;
+    --blocking-ink: #ff7b72;
+    --blocking-bg: #2a1615;
+    --warning-ink: #e3b341;
+    --warning-bg: #2a2213;
+    --ok-ink: #56d364;
+    --ok-bg: #12261a;
+    --candidate-ink: #ff9d94;
+    --installed-ink: #9aa4ae;
+    --installed-fill: rgba(154, 164, 174, 0.14);
+    --marked-ink: #d2a8ff;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 2rem 1rem;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+header, main { max-width: 68rem; margin: 0 auto; }
+
+h1 { font-size: 1.6rem; margin: 0 0 0.25rem; }
+h2 { font-size: 1.1rem; margin: 0 0 0.75rem; }
+h3 { font-size: 0.95rem; margin: 0 0 0.5rem; }
+
+.lede { color: var(--muted-ink); margin: 0 0 1.5rem; max-width: 48rem; }
+
+code {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.field { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1rem; }
+.field-check { flex-direction: row; align-items: flex-start; gap: 0.6rem; }
+.field-check label { font-weight: 400; }
+.row { display: flex; gap: 1rem; flex-wrap: wrap; }
+.row .field { flex: 1 1 16rem; }
+
+label { font-weight: 600; font-size: 0.9rem; }
+
+input[type="text"], input[type="url"], input[type="file"] {
+  font: inherit;
+  padding: 0.55rem 0.65rem;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--field-border);
+  border-radius: 8px;
+  max-width: 100%;
+}
+
+input[type="checkbox"] { width: 1.1rem; height: 1.1rem; margin-top: 0.25rem; }
+
+/* Everything focusable shows it, including the two things that are focusable
+   only because they had to be: the scrollable columns list (tabindex="0", so a
+   keyboard can reach rows past the ninth) and the findings heading
+   (tabindex="-1", which script focuses when results arrive). */
+input:focus, button:focus-visible, a:focus-visible, summary:focus-visible,
+[tabindex]:focus-visible, .columns:focus, h2[tabindex="-1"]:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+input[aria-invalid="true"] { border-color: var(--blocking-ink); }
+input:disabled { opacity: 0.55; }
+
+.hint { font-size: 0.8rem; color: var(--muted-ink); }
+
+button {
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.55rem 1rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--btn-fg);
+}
+
+button:hover:not(:disabled):not([aria-disabled="true"]) { filter: brightness(1.05); }
+/* A control turned off with aria-disabled looks exactly like one turned off
+   with the attribute — it is still focusable, so that it can say why. */
+button:disabled, button[aria-disabled="true"] { cursor: not-allowed; opacity: 0.5; }
+
+/* ---- the drop zone --------------------------------------------------- */
+
+.drop-zone {
+  border: 2px dashed var(--field-border);
+  border-radius: 12px;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+}
+
+/* Dragging is signalled by the border style and the wording as well as by the
+   accent colour, so it reads without colour. */
+.drop-zone.dragging {
+  border-style: solid;
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.drop-hint { margin: 0 0 0.75rem; color: var(--muted-ink); font-size: 0.9rem; }
+.chosen { margin: 0; font-size: 0.85rem; color: var(--ink); }
+.separator { text-align: center; color: var(--muted-ink); margin: 0.9rem 0; }
+
+/* ---- the live region ------------------------------------------------- */
+
+.status:not(:empty) {
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-weight: 600;
+  margin-bottom: 1.25rem;
+}
+.status.ok { background: var(--ok-bg); color: var(--ok-ink); border-color: var(--ok-ink); }
+.status.error { background: var(--blocking-bg); color: var(--blocking-ink); border-color: var(--blocking-ink); }
+.status.warn { background: var(--warning-bg); color: var(--warning-ink); border-color: var(--warning-ink); }
+.status.pending { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--muted-ink); }
+
+/* ---- findings -------------------------------------------------------- */
+
+.findings { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem; }
+
+.finding {
+  border: 1px solid var(--border);
+  border-left-width: 6px;
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+}
+/* Blocking is a solid heavy edge; a warning is a dashed one. The severity word
+   is printed as well — colour carries nothing on its own here. */
+.finding.blocking { border-left-color: var(--blocking-ink); border-left-style: solid; }
+.finding.warning { border-left-color: var(--warning-ink); border-left-style: dashed; }
+
+.finding-head { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; }
+
+/* The code is prominent on purpose: an operator quotes it in a support request
+   and finds it in the docs. */
+.finding-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+}
+.finding.blocking .finding-code { color: var(--blocking-ink); }
+.finding.warning .finding-code { color: var(--warning-ink); }
+
+.severity {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+}
+.finding.blocking .severity { background: var(--blocking-bg); color: var(--blocking-ink); border: 1px solid var(--blocking-ink); }
+.finding.warning .severity { background: var(--warning-bg); color: var(--warning-ink); border: 1px dashed var(--warning-ink); }
+
+.finding-title { font-weight: 600; margin: 0.35rem 0 0; }
+.finding p.part { margin: 0.5rem 0 0; }
+.finding p.part-specifics { font-weight: 600; }
+.finding p.part-fix { color: var(--muted-ink); }
+.finding .rows { font-size: 0.85rem; color: var(--muted-ink); margin: 0.5rem 0 0; }
+
+/* ---- the map --------------------------------------------------------- */
+
+.map-controls { margin: 0 0 0.75rem; }
+.map-controls button { font-size: 0.85rem; padding: 0.35rem 0.7rem; }
+/* No pressed styling and no aria-pressed: this button swaps its label, and a
+   swapping label plus a pressed state contradict each other — the button
+   reading "Show everything installed as well" would be drawn as the pressed
+   one at the exact moment everything is NOT shown. Which view is drawn is
+   stated in words in .map-summary. */
+
+.map-and-columns { display: flex; gap: 1.25rem; flex-wrap: wrap; align-items: flex-start; }
+.map-holder { flex: 1 1 32rem; min-width: 0; }
+.columns-panel { flex: 0 1 16rem; min-width: 0; }
+
+.map {
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+/* One transform draws both, so the only differences here are the ones a person
+   is meant to see: weight, dash, fill. */
+.installed-shape {
+  fill: var(--installed-fill);
+  stroke: var(--installed-ink);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+.candidate-shape {
+  fill: none;
+  stroke: var(--candidate-ink);
+  stroke-width: 2.5;
+  stroke-dasharray: 9 4;
+  stroke-linejoin: round;
+}
+.candidate-shape.marked {
+  stroke: var(--marked-ink);
+  stroke-width: 3.5;
+  stroke-dasharray: 1 4;
+  stroke-linecap: round;
+}
+.marked-ring { fill: none; stroke: var(--marked-ink); stroke-width: 2; }
+
+.legend { list-style: none; display: flex; flex-wrap: wrap; gap: 1rem; padding: 0; margin: 0.6rem 0 0; font-size: 0.8rem; color: var(--muted-ink); }
+.legend li { display: flex; align-items: center; gap: 0.4rem; }
+.swatch { width: 2.2rem; height: 0; display: inline-block; }
+.swatch-candidate { border-top: 3px dashed var(--candidate-ink); }
+.swatch-installed { border-top: 1px solid var(--installed-ink); }
+.swatch-marked { border-top: 3px dotted var(--marked-ink); }
+
+.map-summary { font-size: 0.9rem; margin: 0.75rem 0 0; }
+.map-summary .unknown { font-weight: 700; }
+
+.columns { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; display: grid; gap: 0.35rem; max-height: 26rem; overflow-y: auto; }
+.columns li { border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem 0.5rem; }
+.column-name { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; }
+.column-samples { display: block; color: var(--muted-ink); overflow-wrap: anywhere; }
+
+.notes { margin: 1rem 0 0; padding-left: 1.1rem; font-size: 0.9rem; color: var(--muted-ink); display: grid; gap: 0.5rem; }
+
+/* Wide content scrolls inside its own box; the page itself never scrolls
+   sideways. */
+.columns, .map-holder { overflow-x: auto; }
+
+@media (max-width: 40rem) {
+  .map-and-columns { flex-direction: column; }
+  .columns-panel { flex: 1 1 auto; width: 100%; }
+}

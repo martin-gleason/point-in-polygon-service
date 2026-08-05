@@ -70,6 +70,20 @@ D24 — nothing is written until the operator says so
     as a route so the shape of the app is settled, and answers "not yet
     implemented" — F8-T6 fills it in.
 
+D25 — the page is served from here, and guarded like everything else
+    F8-T5's page is four files under `static/admin/`, served by the routes at
+    the bottom of `create_admin_app` and named one by one in
+    `ADMIN_PAGE_FILES` rather than mounted as a directory. `_guard` is
+    registered on the application, so the document is refused without this
+    run's token exactly as `/api/inspect` is — a page a rebinding tab can read
+    is a page that hands a stranger the shape of every request this tool takes.
+
+    That leaves one thing open, and it is left open deliberately: a browser
+    sends no custom header when it follows a link, and a URL fragment never
+    reaches a server, so the *first* navigation cannot carry the token in
+    either of the two places D23 allows. Delivering that first document is
+    F8-T7's problem. Nothing in F8-T5 loosened the guard to make a demo work.
+
 Sessions, and the leak this design exists to prevent
     Inspect and preview are two requests, so the `Candidate` — which owns an
     extraction workspace on disk — has to outlive the first one. `SessionStore`
@@ -113,7 +127,7 @@ from typing import Any, AsyncIterator, Iterable, Protocol, Sequence, TypeVar
 from urllib.parse import parse_qsl
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 # Starlette is FastAPI's own dependency — already installed, nothing added. It
 # is what FastAPI itself uses to run a plain `def` endpoint off the event loop,
@@ -191,6 +205,28 @@ MAX_FIELD_BYTES = 64 * 1024
 MAX_FILENAME_CHARS = 255
 
 READ_CHUNK_BYTES = 64 * 1024
+
+# --------------------------------------------------------------------------
+# the page (F8-T5)
+# --------------------------------------------------------------------------
+
+# `app/admin/main.py` -> `app/admin` -> `app` -> the repo root.
+ADMIN_PAGE_DIR = Path(__file__).resolve().parents[2] / "static" / "admin"
+
+# The whole page, named file by file rather than served out of a directory.
+#
+# `StaticFiles` would be one line, and one line is how a directory grows a
+# `.env`, an editor backup or a stray export and serves it. This tool's audience
+# drops files into folders for a living. An explicit table can only ever serve
+# these four, and the media types are stated rather than guessed — a module
+# script served as `text/plain` is refused by the browser outright, which is a
+# blank page with an error only the console shows.
+ADMIN_PAGE_FILES: dict[str, tuple[str, str]] = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/admin.js": ("admin.js", "text/javascript; charset=utf-8"),
+    "/preview_model.js": ("preview_model.js", "text/javascript; charset=utf-8"),
+    "/admin.css": ("admin.css", "text/css; charset=utf-8"),
+}
 
 
 class _HasLayerId(Protocol):
@@ -1115,6 +1151,48 @@ def create_admin_app(
             "not_implemented",
             "installing a layer is not built yet — this build of the tool "
             "inspects and previews only",
+        )
+
+    def _page(route: str) -> Any:
+        """One of the four files the page is made of, or a plain 404.
+
+        Behind `_guard` like everything else in this app — the middleware is
+        registered on the application, not on the API routes, so the document
+        itself is refused without this run's token exactly as `/api/inspect`
+        is. That is deliberate: a page reachable without the token is a page a
+        DNS-rebinding tab can read, and reading it tells an attacker the shape
+        of every request this tool accepts.
+
+        It also means the token cannot arrive with the first navigation, since a
+        browser sends no custom header when it follows a link and a URL fragment
+        never reaches a server at all. Delivering this first document is F8-T7's
+        problem and it is called out here rather than solved quietly: nothing in
+        this task loosens the guard to make a demo work.
+
+        `no-store` because the page carries no token but the browser cache
+        outlives the run that served it, and a stale copy of this page pointed
+        at a later run's port is a confusing failure.
+        """
+        name, media_type = ADMIN_PAGE_FILES[route]
+        path = ADMIN_PAGE_DIR / name
+        if not path.is_file():
+            return _error(
+                404,
+                "page_missing",
+                "this build of the tool is missing its own page files",
+            )
+        return FileResponse(
+            path, media_type=media_type, headers={"Cache-Control": "no-store"}
+        )
+
+    # Registered from the table so that the routes and the table cannot drift:
+    # a file added to one is served by the other or by neither.
+    for _route in ADMIN_PAGE_FILES:
+        app.add_api_route(
+            _route,
+            (lambda route: lambda: _page(route))(_route),
+            methods=["GET"],
+            include_in_schema=False,
         )
 
     return app
