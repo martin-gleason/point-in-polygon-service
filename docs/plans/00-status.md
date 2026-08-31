@@ -47,7 +47,6 @@ Counted from the register itself. A register with no rows still gets a line.
 | Owner items (`O`) | 0 | 0 | 0 |
 | Hooks (`H`) | 10 | 10 | 0 |
 | Mutations (`M`) | 0 | 0 | 0 |
-| Other (C) (`C`) | 2 | 2 | 0 |
 
 ### By status
 
@@ -55,7 +54,6 @@ Counted from the register itself. A register with no rows still gets a line.
 |---|---|---|
 | `D` | open | 20 |
 | `H` | open | 10 |
-| `C` | open | 2 |
 
 ## Hooks
 
@@ -110,9 +108,7 @@ Every open row in the register. Owner is the row's Owner column where the table 
 | unassigned | H8 | — | open | Batch never persists (§9, D15) |
 | unassigned | H9 | — | open | Output is injection-safe (D21) |
 | unassigned | H10 | — | open | The admin tool is never publicly served (D22) |
-| — | C1 | — | open | PII |
-| — | C2 | — | open | contract |
 
 ---
 
-32 open register rows.
+30 open register rows.

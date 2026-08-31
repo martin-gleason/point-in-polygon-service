@@ -59,6 +59,11 @@ Outstanding items only the owner can close.
 
 ## Chores (C)
 
+> **Two rows were removed by hand on 2026-08-31.** `docs/plans/PLAN.md` uses `C1`/`C2` as
+> *category* labels in a findings table — the cells read "PII" and "contract" — not as chore
+> ids. The reconstructor cannot tell those apart from a real chore and re-adds them on every
+> run; that is `O11` in the baseline register, not a fixed thing.
+
 `conventions.md`: *a chore gets a file only when it has tasks and a verification
 step; a one-line chore lives in the register.* This is that register. A chore with
 its own plan file is listed here too, with a link, so one read gives all of them —
@@ -67,8 +72,6 @@ days on the owner's track.
 
 | ID | Chore | P | Status | Owner | Plan | Source |
 |---|---|---|---|---|---|---|
-| C1 | PII | — | unknown | — | — | `docs/plans/PLAN.md:880` |
-| C2 | contract | — | unknown | — | — | `docs/plans/PLAN.md:881` |
 
 ## Gates (G)
 
