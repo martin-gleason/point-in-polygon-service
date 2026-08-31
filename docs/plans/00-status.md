@@ -43,7 +43,7 @@ Counted from the register itself. A register with no rows still gets a line.
 | Register | Rows | Open | Closed |
 |---|---|---|---|
 | Decisions (`D`) | 20 | 20 | 0 |
-| Risks (`RR`) | 0 | 0 | 0 |
+| Risks (`RR`) | 1 | 1 | 0 |
 | Owner items (`O`) | 0 | 0 | 0 |
 | Hooks (`H`) | 10 | 10 | 0 |
 | Mutations (`M`) | 0 | 0 | 0 |
@@ -53,6 +53,7 @@ Counted from the register itself. A register with no rows still gets a line.
 | Register | Status | Count |
 |---|---|---|
 | `D` | open | 20 |
+| `RR` | proposed | 1 |
 | `H` | open | 10 |
 
 ## Hooks
@@ -108,7 +109,8 @@ Every open row in the register. Owner is the row's Owner column where the table 
 | unassigned | H8 | — | open | Batch never persists (§9, D15) |
 | unassigned | H9 | — | open | Output is injection-safe (D21) |
 | unassigned | H10 | — | open | The admin tool is never publicly served (D22) |
+| unassigned | RR1 | — | proposed | [docs-ignored] A documentation tree that can never be committed, reviewed, or seen by anyone cloning. The compliance che… |
 
 ---
 
-30 open register rows.
+31 open register rows.

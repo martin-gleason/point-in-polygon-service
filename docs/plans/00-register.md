@@ -43,6 +43,8 @@ number has not been decided, however clearly it was said aloud.
 
 ## Risks (RR)
 
+| RR1 | [docs-ignored] A documentation tree that can never be committed, reviewed, or seen by anyone cloning. The compliance checker cannot tell: it reads the filesystem, not the index. | proposed | — | — | Evidence: `git check-ignore -v docs CLAUDE.md` → .gitignore:27:CLAUDE.md	CLAUDE.md | agent |
+
 | ID | Risk | Status | Likelihood | Impact | Mitigation | Owner | Source |
 |---|---|---|---|---|---|---|---|
 
