@@ -25,6 +25,5 @@ data/raw/
 # bootstrap.py embeds CLAUDE.md, the SPEC, and conventions.md verbatim as
 # string literals, so it belongs with them rather than in the public tree.
 CLAUDE.md
-docs/
 .claude/
 bootstrap.py
