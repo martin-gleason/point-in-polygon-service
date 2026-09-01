@@ -3,11 +3,9 @@
 
 # Status — code-process-review
 
-Generated from `docs/plans/00-register.md`, the plan files in `docs/plans/`, `docs/specs/SPEC.md`, and git, by `scripts/gen_status.py`. Hand edits are reverted by the next run and fail CI in the meantime (`D13`, `H1`).
+Generated from `docs/plans/00-register.md`, the plan files in `docs/plans/` and `docs/specs/SPEC.md`, by `scripts/gen_status.py`. Hand edits are reverted by the next run and fail CI in the meantime (`D13`, `H1`).
 
-**There is no date on this page.** A generated file that embeds the time it ran can never compare equal to a regeneration of itself, so the freshness check would fail forever and get switched off. Anything read from git here is chosen to be slow-moving for the same reason.
-
-Branch: `F8/layer-tool`.
+**Nothing on this page comes from git, and there is no date.** A generated file that embeds anything which moves on its own can never compare equal to a regeneration of itself. This page once reported which task IDs had appeared in a commit scope, so the commit that first shipped `F3-T1` was the thing that made `F3-T1` appear — the page was stale by the act of committing it, and one project collected five regeneration commits in a day, none of which carried information (`RR11`). Everything here is derived from the register, so it changes only when the register changes, and regenerating is part of that same edit.
 
 ## The vision sentence
 
@@ -22,19 +20,10 @@ Named, never numbered (`D2`). **No source read here marks a milestone as the cur
 
 ## Features and chores
 
-Status is what the unit's own plan header declares. *In git* is which task IDs have appeared in a commit scope — presence, never a commit count, so this page does not go stale by the act of committing to it.
+Status is what the unit's own plan header declares. What has landed in git is deliberately not here — see the note above.
 
-| ID | Kind | Status | Milestone | P | Owner | Plan | Tasks | In git |
-|---|---|---|---|---|---|---|---|---|
-| C0 | chore | no plan file — seen only in git | — | — | — | — | — | yes (no task IDs) |
-| C1 | chore | no plan file — seen only in git | — | — | — | — | — | yes (no task IDs) |
-| F1 | feature | no plan file — seen only in git | — | — | — | — | — | F1-T4, F1-T5 |
-| F2 | feature | no plan file — seen only in git | — | — | — | — | — | F2-T4 |
-| F3 | feature | no plan file — seen only in git | — | — | — | — | — | F3-T1, F3-T4 |
-| F4 | feature | no plan file — seen only in git | — | — | — | — | — | yes (no task IDs) |
-| F5 | feature | no plan file — seen only in git | — | — | — | — | — | F5-T4, F5-T5, F5-T6 |
-| F6 | feature | no plan file — seen only in git | — | — | — | — | — | F6-T1, F6-T3, F6-T4 |
-| F8 | feature | no plan file — seen only in git | — | — | — | — | — | F8-T1, F8-T2, F8-T3, F8-T4, F8-T5 |
+| ID | Kind | Status | Milestone | P | Owner | Plan | Tasks |
+|---|---|---|---|---|---|---|---|
 
 ## Registers
 
