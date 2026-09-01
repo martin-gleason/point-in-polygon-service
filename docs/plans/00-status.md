@@ -29,21 +29,24 @@ Status is what the unit's own plan header declares. What has landed in git is de
 
 Counted from the register itself. A register with no rows still gets a line.
 
-| Register | Rows | Open | Closed |
-|---|---|---|---|
-| Decisions (`D`) | 20 | 20 | 0 |
-| Risks (`RR`) | 1 | 0 | 1 |
-| Owner items (`O`) | 0 | 0 | 0 |
-| Hooks (`H`) | 10 | 10 | 0 |
-| Mutations (`M`) | 0 | 0 | 0 |
+| Register | Rows | Open | Unknown | Closed |
+|---|---|---|---|---|
+| Decisions (`D`) | 20 | 0 | 20 | 0 |
+| Risks (`RR`) | 1 | 0 | 0 | 1 |
+| Owner items (`O`) | 0 | 0 | 0 | 0 |
+| Hooks (`H`) | 10 | 0 | 10 | 0 |
+| Mutations (`M`) | 0 | 0 | 0 | 0 |
+
+`Unknown` is not a third kind of open. It means the source document said nothing about status, so the page will not guess — the row is a question for the owner (`RR37`).
+
 
 ### By status
 
 | Register | Status | Count |
 |---|---|---|
-| `D` | open | 20 |
+| `D` | unknown | 20 |
 | `RR` | rejected | 1 |
-| `H` | open | 10 |
+| `H` | unknown | 10 |
 
 ## Hooks
 
@@ -51,16 +54,16 @@ Counted from the register itself. A register with no rows still gets a line.
 
 | ID | Hook | Surface | Protects | Status |
 |---|---|---|---|---|
-| H1 | Spec immutability (§ preamble, rule 7) | — | — | open |
-| H2 | Tests pass before merge | — | — | open |
-| H3 | No committed credentials (§9) | — | — | open |
-| H4 | No PII in logs (§9) | — | — | open |
-| H5 | OpenAPI ≡ implementation ≡ §4 (§9) | — | — | open |
-| H6 | No proprietary dep in the core or default install (§9) | — | — | open |
-| H7 | Plugin laziness | — | — | open |
-| H8 | Batch never persists (§9, D15) | — | — | open |
-| H9 | Output is injection-safe (D21) | — | — | open |
-| H10 | The admin tool is never publicly served (D22) | — | — | open |
+| H1 | Spec immutability (§ preamble, rule 7) | — | — | unknown |
+| H2 | Tests pass before merge | — | — | unknown |
+| H3 | No committed credentials (§9) | — | — | unknown |
+| H4 | No PII in logs (§9) | — | — | unknown |
+| H5 | OpenAPI ≡ implementation ≡ §4 (§9) | — | — | unknown |
+| H6 | No proprietary dep in the core or default install (§9) | — | — | unknown |
+| H7 | Plugin laziness | — | — | unknown |
+| H8 | Batch never persists (§9, D15) | — | — | unknown |
+| H9 | Output is injection-safe (D21) | — | — | unknown |
+| H10 | The admin tool is never publicly served (D22) | — | — | unknown |
 
 ## Open, and owned by whom
 
@@ -68,36 +71,36 @@ Every open row in the register. Owner is the row's Owner column where the table 
 
 | Owner | ID | P | Status | Item |
 |---|---|---|---|---|
-| owner | D10 | — | open | In-process plugin, or out-of-process shim? |
-| owner | D11 | — | open | Entry-point group name |
-| owner | D12 | — | open | Where the plugin lives |
-| owner | D13 | — | open | Concurrency |
-| owner | D14 | — | open | Scoring |
-| owner | D15 | — | open | Synchronous, streaming, in-memory. No job queue, no server-side state. |
-| owner | D16 | — | open | Google Sheets = published-CSV export only. No API key, no OAuth. |
-| owner | D17 | — | open | XLSX via openpyxl, declared as an optional extra [batch]. |
-| owner | D18 | — | open | Column mapping is explicit. Never guessed. |
-| owner | D19 | — | open | Per-row isolation. |
-| owner | D20 | — | open | Rate limiting on by default, and Nominatim refused outright. |
-| owner | D21 | — | open | Escape formula-injection on output. |
-| owner | D22 | — | open | Separate ASGI app, never a router on app.main. |
-| owner | D23 | — | open | Loopback bind + one-time token + Host header check. |
-| owner | D24 | — | open | Nothing is written until the operator confirms. |
-| owner | D25 | — | open | Commit = normalize to GeoPackage + append TOML + timestamped backup. |
-| owner | D26 | — | open | Validate by actually loading it the way the service does. |
-| owner | D27 | — | open | Two severities: blocking errors and acknowledgeable warnings. |
-| owner | D28 | — | open | Simplify geometry for display only. |
-| owner | D29 | — | open | Harvest every vintage signal the format offers, and name the ones it doesn't. |
-| unassigned | H1 | — | open | Spec immutability (§ preamble, rule 7) |
-| unassigned | H2 | — | open | Tests pass before merge |
-| unassigned | H3 | — | open | No committed credentials (§9) |
-| unassigned | H4 | — | open | No PII in logs (§9) |
-| unassigned | H5 | — | open | OpenAPI ≡ implementation ≡ §4 (§9) |
-| unassigned | H6 | — | open | No proprietary dep in the core or default install (§9) |
-| unassigned | H7 | — | open | Plugin laziness |
-| unassigned | H8 | — | open | Batch never persists (§9, D15) |
-| unassigned | H9 | — | open | Output is injection-safe (D21) |
-| unassigned | H10 | — | open | The admin tool is never publicly served (D22) |
+| owner | D10 | — | unknown | In-process plugin, or out-of-process shim? |
+| owner | D11 | — | unknown | Entry-point group name |
+| owner | D12 | — | unknown | Where the plugin lives |
+| owner | D13 | — | unknown | Concurrency |
+| owner | D14 | — | unknown | Scoring |
+| owner | D15 | — | unknown | Synchronous, streaming, in-memory. No job queue, no server-side state. |
+| owner | D16 | — | unknown | Google Sheets = published-CSV export only. No API key, no OAuth. |
+| owner | D17 | — | unknown | XLSX via openpyxl, declared as an optional extra [batch]. |
+| owner | D18 | — | unknown | Column mapping is explicit. Never guessed. |
+| owner | D19 | — | unknown | Per-row isolation. |
+| owner | D20 | — | unknown | Rate limiting on by default, and Nominatim refused outright. |
+| owner | D21 | — | unknown | Escape formula-injection on output. |
+| owner | D22 | — | unknown | Separate ASGI app, never a router on app.main. |
+| owner | D23 | — | unknown | Loopback bind + one-time token + Host header check. |
+| owner | D24 | — | unknown | Nothing is written until the operator confirms. |
+| owner | D25 | — | unknown | Commit = normalize to GeoPackage + append TOML + timestamped backup. |
+| owner | D26 | — | unknown | Validate by actually loading it the way the service does. |
+| owner | D27 | — | unknown | Two severities: blocking errors and acknowledgeable warnings. |
+| owner | D28 | — | unknown | Simplify geometry for display only. |
+| owner | D29 | — | unknown | Harvest every vintage signal the format offers, and name the ones it doesn't. |
+| unassigned | H1 | — | unknown | Spec immutability (§ preamble, rule 7) |
+| unassigned | H2 | — | unknown | Tests pass before merge |
+| unassigned | H3 | — | unknown | No committed credentials (§9) |
+| unassigned | H4 | — | unknown | No PII in logs (§9) |
+| unassigned | H5 | — | unknown | OpenAPI ≡ implementation ≡ §4 (§9) |
+| unassigned | H6 | — | unknown | No proprietary dep in the core or default install (§9) |
+| unassigned | H7 | — | unknown | Plugin laziness |
+| unassigned | H8 | — | unknown | Batch never persists (§9, D15) |
+| unassigned | H9 | — | unknown | Output is injection-safe (D21) |
+| unassigned | H10 | — | unknown | The admin tool is never publicly served (D22) |
 
 ---
 
